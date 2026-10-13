@@ -58,9 +58,8 @@ const STORAGE_KEY = 'rupeewise_app_state_v2';
 
 async function ensureUserInSupabase(supabase: any, user: User): Promise<string> {
   const validId = ensureValidUUID(user.id);
-  const safeEmail = user.email && !user.email.includes('example.com')
-    ? user.email
-    : `user_${validId.replace(/-/g, '').slice(0, 10)}@rupeewise.app`;
+  const cleanEmail = user.email?.trim().toLowerCase();
+  const safeEmail = cleanEmail || `user_${validId.replace(/-/g, '').slice(0, 10)}@rupeewise.app`;
 
   try {
     const { error } = await supabase.from('users').upsert(
@@ -261,6 +260,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         syncWithSupabase(devUser);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'settlements' }, () => {
+        syncWithSupabase(devUser);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => {
+        syncWithSupabase(devUser);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => {
         syncWithSupabase(devUser);
       })
       .subscribe();
@@ -468,19 +473,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addMemberToGroup = (groupId: string, email: string): boolean => {
-    const targetUser = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (!targetUser) return false;
+    const cleanEmail = email.trim().toLowerCase();
+    let targetUser = users.find((u) => u.email?.toLowerCase() === cleanEmail);
+    if (!targetUser) {
+      const newUserId = generateUUID();
+      const namePart = cleanEmail.split('@')[0];
+      const formattedName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+      targetUser = {
+        id: newUserId,
+        email: cleanEmail,
+        full_name: formattedName,
+        default_currency: 'INR',
+        avatar_url: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(formattedName)}`,
+        created_at: new Date().toISOString(),
+      };
+      setUsers((prev) => [...prev, targetUser!]);
+    } else {
+      targetUser = { ...targetUser, id: ensureValidUUID(targetUser.id) };
+    }
 
     const newMemberId = generateUUID();
     setGroups((prev) =>
       prev.map((g) => {
         if (g.id !== groupId) return g;
-        const exists = (g.members || []).some((m) => m.user_id === targetUser.id);
+        const exists = (g.members || []).some((m) => m.user_id === targetUser!.id);
         if (exists) return g;
         const newMember: GroupMember = {
           id: newMemberId,
           group_id: groupId,
-          user_id: targetUser.id,
+          user_id: targetUser!.id,
           role: 'member',
           joined_at: new Date().toISOString(),
           user: targetUser,
@@ -495,13 +516,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const supabase = createClient();
-        await supabase.from('group_members').insert({
+        await ensureUserInSupabase(supabase, targetUser!);
+        const { error } = await supabase.from('group_members').insert({
           id: newMemberId,
           group_id: groupId,
-          user_id: targetUser.id,
+          user_id: targetUser!.id,
           role: 'member',
         });
-      } catch {}
+        if (error) console.error('Failed to add group member in Supabase:', error);
+      } catch (e) {
+        console.error('Error adding member to group in Supabase:', e);
+      }
     })();
 
     return true;
@@ -928,21 +953,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Friends
   const addFriendByEmail = (email: string) => {
     const cleanEmail = email.trim().toLowerCase();
-    if (cleanEmail === currentUser.email.toLowerCase()) {
+    if (cleanEmail === currentUser.email?.toLowerCase()) {
       return { success: false, message: "You cannot add yourself as a friend." };
     }
 
     const existingFriendship = friendships.find(
       (f) =>
-        f.friend?.email.toLowerCase() === cleanEmail ||
-        (f.user_id === currentUser.id && usersMap.get(f.friend_id)?.email.toLowerCase() === cleanEmail)
+        f.friend?.email?.toLowerCase() === cleanEmail ||
+        (f.user_id === currentUser.id && usersMap.get(f.friend_id)?.email?.toLowerCase() === cleanEmail)
     );
 
     if (existingFriendship) {
       return { success: false, message: "This person is already in your friends list." };
     }
 
-    let friendUser = users.find((u) => u.email.toLowerCase() === cleanEmail);
+    let friendUser = users.find((u) => u.email?.toLowerCase() === cleanEmail);
     if (!friendUser) {
       const newUserId = generateUUID();
       const namePart = cleanEmail.split('@')[0];
@@ -956,19 +981,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         created_at: new Date().toISOString(),
       };
       setUsers((prev) => [...prev, friendUser!]);
-
-      (async () => {
-        try {
-          const supabase = createClient();
-          await supabase.from('users').upsert({
-            id: friendUser!.id,
-            email: friendUser!.email,
-            full_name: friendUser!.full_name,
-            avatar_url: friendUser!.avatar_url,
-            default_currency: 'INR',
-          });
-        } catch {}
-      })();
+    } else {
+      friendUser = { ...friendUser, id: ensureValidUUID(friendUser.id) };
     }
 
     const friendshipId = generateUUID();
@@ -983,16 +997,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     setFriendships((prev) => [newFriendship, ...prev]);
 
+    const activity: ActivityLog = {
+      id: generateUUID(),
+      user_id: currentUser.id,
+      entity_type: 'friend',
+      entity_id: friendUser.id,
+      action: 'created',
+      details: {
+        title: `Added ${friendUser.full_name}`,
+        description: `${currentUser.full_name} added ${friendUser.full_name} (${cleanEmail}) as a friend`,
+      },
+      created_at: new Date().toISOString(),
+      user: currentUser,
+    };
+    setActivities((prev) => [activity, ...prev]);
+
     (async () => {
       try {
         const supabase = createClient();
-        await supabase.from('friendships').insert({
-          id: friendshipId,
-          user_id: currentUser.id,
-          friend_id: friendUser!.id,
-          status: 'accepted',
+        // 1. Ensure current user exists in public.users
+        const validCurrentUserId = await ensureUserInSupabase(supabase, currentUser);
+
+        // 2. Ensure friend user exists in public.users
+        const validFriendUserId = await ensureUserInSupabase(supabase, friendUser!);
+
+        // 3. Upsert friendship into public.friendships
+        const { error: fErr } = await supabase.from('friendships').upsert(
+          {
+            id: friendshipId,
+            user_id: validCurrentUserId,
+            friend_id: validFriendUserId,
+            status: 'accepted',
+          },
+          { onConflict: 'user_id,friend_id' }
+        );
+        if (fErr) console.error('Failed to save friendship in Supabase:', fErr);
+
+        // 4. Record activity log
+        await supabase.from('activity_logs').insert({
+          id: activity.id,
+          user_id: validCurrentUserId,
+          entity_type: 'friend',
+          entity_id: validFriendUserId,
+          action: 'created',
+          details: activity.details,
         });
-      } catch {}
+      } catch (e) {
+        console.error('Error saving friend to Supabase:', e);
+      }
     })();
 
     return { success: true, message: `Added ${friendUser.full_name} to your friends!` };
@@ -1003,8 +1055,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const supabase = createClient();
-        await supabase.from('friendships').delete().eq('id', friendshipId);
-      } catch {}
+        const { error } = await supabase.from('friendships').delete().eq('id', friendshipId);
+        if (error) console.error('Failed to remove friendship in Supabase:', error);
+      } catch (e) {
+        console.error('Error removing friend in Supabase:', e);
+      }
     })();
   };
 

@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 export default function FriendsPage() {
-  const { friendships, currentUser, getFriendBalance, removeFriend } = useAppStore();
+  const { friendships, users, currentUser, getFriendBalance, removeFriend } = useAppStore();
 
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
   const [isSettleOpen, setIsSettleOpen] = useState(false);
@@ -71,7 +71,7 @@ export default function FriendsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {friendships.map((f) => {
-            const friend = f.friend;
+            const friend = f.friend || users.find((u) => u.id === f.friend_id);
             if (!friend) return null;
 
             const balance = getFriendBalance(friend.id);
