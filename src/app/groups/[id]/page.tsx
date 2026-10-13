@@ -51,6 +51,7 @@ export default function GroupDetailPage() {
 
   const [activeTab, setActiveTab] = useState<'expenses' | 'balances' | 'activity' | 'settings'>('expenses');
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [isSettleOpen, setIsSettleOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -378,13 +379,22 @@ export default function GroupDetailPage() {
         expense={selectedExpense}
         isOpen={!!selectedExpense}
         onClose={() => setSelectedExpense(null)}
+        onEdit={(exp) => {
+          setSelectedExpense(null);
+          setEditingExpense(exp);
+          setIsAddExpenseOpen(true);
+        }}
       />
 
       {/* Modals */}
       <AddExpenseModal
         isOpen={isAddExpenseOpen}
-        onClose={() => setIsAddExpenseOpen(false)}
+        onClose={() => {
+          setIsAddExpenseOpen(false);
+          setEditingExpense(null);
+        }}
         defaultGroupId={group.id}
+        expenseToEdit={editingExpense}
       />
       <SettleModal
         isOpen={isSettleOpen}

@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { useAppStore } from '@/lib/store';
-import { SplitType, User } from '@/types/database';
+import { useAppStore, generateUUID } from '@/lib/store';
+import { SplitType, User, Expense } from '@/types/database';
 import { formatINR, toRupees, toPaise } from '@/lib/currency';
 import {
   calculateEqualSplit,
@@ -32,10 +32,11 @@ interface AddExpenseModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultGroupId?: string | null;
+  expenseToEdit?: Expense | null;
 }
 
-export function AddExpenseModal({ isOpen, onClose, defaultGroupId }: AddExpenseModalProps) {
-  const { currentUser, groups, categories, users, addExpense } = useAppStore();
+export function AddExpenseModal({ isOpen, onClose, defaultGroupId, expenseToEdit }: AddExpenseModalProps) {
+  const { currentUser, groups, categories, users, addExpense, updateExpense } = useAppStore();
 
   const [description, setDescription] = useState('');
   const [amountStr, setAmountStr] = useState('');
@@ -65,26 +66,133 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId }: AddExpenseM
     ? (activeGroup.members.map((m) => m.user || users.find((u) => u.id === m.user_id)).filter(Boolean) as User[])
     : users;
 
-  // Initialize participants on group change
+  const handleGroupChange = (newGid: string) => {
+    setGroupId(newGid);
+    const grp = groups.find((g) => g.id === newGid);
+    const members: User[] = grp?.members
+      ? (grp.members.map((m) => m.user || users.find((u) => u.id === m.user_id)).filter(Boolean) as User[])
+      : users;
+    const ids = members.map((m) => m.id);
+    setSelectedUserIds(ids);
+    setMultiPayers(members.map((m) => ({ userId: m.id, amount: '' })));
+    const initExact: Record<string, string> = {};
+    const initPerc: Record<string, string> = {};
+    const initShares: Record<string, string> = {};
+    ids.forEach((id) => {
+      initExact[id] = '';
+      initPerc[id] = ids.length > 0 ? (100 / ids.length).toFixed(1) : '0';
+      initShares[id] = '1';
+    });
+    setExactAmounts(initExact);
+    setPercentages(initPerc);
+    setShares(initShares);
+    if (!ids.includes(singlePayerId)) {
+      setSinglePayerId(ids[0] || currentUser.id);
+    }
+  };
+
+  // Initialize form state when opening or when expenseToEdit changes
   useEffect(() => {
-    if (availableMembers.length > 0) {
-      const ids = availableMembers.map((m) => m.id);
+    if (!isOpen) return;
+
+    if (expenseToEdit) {
+      setDescription(expenseToEdit.description || '');
+      setAmountStr(expenseToEdit.amount ? expenseToEdit.amount.toString() : '');
+      const targetGid = expenseToEdit.group_id || '';
+      setGroupId(targetGid);
+      setCategoryId(expenseToEdit.category_id || categories[0]?.id || 'cat_food');
+      setDate(expenseToEdit.date ? expenseToEdit.date.split('T')[0] : new Date().toISOString().split('T')[0]);
+      setNotes(expenseToEdit.notes || '');
+      setReceiptUrl(expenseToEdit.receipt_url || '');
+      setSplitType(expenseToEdit.split_type || 'equal');
+      setError(null);
+
+      const targetGroup = groups.find((g) => g.id === targetGid);
+      const members: User[] = targetGroup?.members
+        ? (targetGroup.members.map((m) => m.user || users.find((u) => u.id === m.user_id)).filter(Boolean) as User[])
+        : users;
+
+      const isMulti = (expenseToEdit.payers || []).length > 1;
+      setIsMultiPayer(isMulti);
+      if (!isMulti && (expenseToEdit.payers || []).length > 0) {
+        setSinglePayerId(expenseToEdit.payers[0].user_id);
+      } else {
+        setSinglePayerId(currentUser.id);
+      }
+
+      const payerMap = new Map((expenseToEdit.payers || []).map((p) => [p.user_id, p.amount_paid.toString()]));
+      setMultiPayers(
+        members.map((m) => ({
+          userId: m.id,
+          amount: payerMap.get(m.id) || '',
+        }))
+      );
+
+      const splitUserIds = (expenseToEdit.splits || []).map((s) => s.user_id);
+      setSelectedUserIds(splitUserIds.length > 0 ? splitUserIds : members.map((m) => m.id));
+
+      const initExact: Record<string, string> = {};
+      const initPerc: Record<string, string> = {};
+      const initShares: Record<string, string> = {};
+
+      members.forEach((m) => {
+        const splitItem = (expenseToEdit.splits || []).find((s) => s.user_id === m.id);
+        if (splitItem) {
+          initExact[m.id] = splitItem.amount_owed.toString();
+          initPerc[m.id] = (
+            splitItem.percentage !== undefined && splitItem.percentage !== null
+              ? splitItem.percentage
+              : expenseToEdit.amount > 0
+              ? (splitItem.amount_owed / expenseToEdit.amount) * 100
+              : 0
+          ).toFixed(1);
+          initShares[m.id] = (splitItem.shares !== undefined && splitItem.shares !== null ? splitItem.shares : 1).toString();
+        } else {
+          initExact[m.id] = '';
+          initPerc[m.id] = '0';
+          initShares[m.id] = '1';
+        }
+      });
+
+      setExactAmounts(initExact);
+      setPercentages(initPerc);
+      setShares(initShares);
+    } else {
+      setDescription('');
+      setAmountStr('');
+      const targetGid = defaultGroupId || '';
+      setGroupId(targetGid);
+      setCategoryId(categories[0]?.id || 'cat_food');
+      setDate(new Date().toISOString().split('T')[0]);
+      setNotes('');
+      setReceiptUrl('');
+      setIsMultiPayer(false);
+      setSinglePayerId(currentUser.id);
+      setSplitType('equal');
+      setError(null);
+
+      const targetGroup = groups.find((g) => g.id === targetGid);
+      const members: User[] = targetGroup?.members
+        ? (targetGroup.members.map((m) => m.user || users.find((u) => u.id === m.user_id)).filter(Boolean) as User[])
+        : users;
+
+      const ids = members.map((m) => m.id);
       setSelectedUserIds(ids);
-      setMultiPayers(availableMembers.map((m) => ({ userId: m.id, amount: '' })));
-      
+      setMultiPayers(members.map((m) => ({ userId: m.id, amount: '' })));
+
       const initExact: Record<string, string> = {};
       const initPerc: Record<string, string> = {};
       const initShares: Record<string, string> = {};
       ids.forEach((id) => {
         initExact[id] = '';
-        initPerc[id] = (100 / ids.length).toFixed(1);
+        initPerc[id] = ids.length > 0 ? (100 / ids.length).toFixed(1) : '0';
         initShares[id] = '1';
       });
       setExactAmounts(initExact);
       setPercentages(initPerc);
       setShares(initShares);
     }
-  }, [groupId, isOpen]);
+  }, [isOpen, expenseToEdit, defaultGroupId]);
 
   const numAmount = parseFloat(amountStr) || 0;
 
@@ -174,8 +282,8 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId }: AddExpenseM
       payersPayload = multiPayers
         .filter((p) => parseFloat(p.amount || '0') > 0)
         .map((p) => ({
-          id: 'p_' + Math.random().toString(36).substr(2, 9),
-          expense_id: '',
+          id: generateUUID(),
+          expense_id: expenseToEdit ? expenseToEdit.id : '',
           user_id: p.userId,
           amount_paid: parseFloat(p.amount || '0'),
           user: users.find((u) => u.id === p.userId),
@@ -183,8 +291,8 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId }: AddExpenseM
     } else {
       payersPayload = [
         {
-          id: 'p_' + Math.random().toString(36).substr(2, 9),
-          expense_id: '',
+          id: generateUUID(),
+          expense_id: expenseToEdit ? expenseToEdit.id : '',
           user_id: singlePayerId,
           amount_paid: numAmount,
           user: users.find((u) => u.id === singlePayerId),
@@ -197,16 +305,16 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId }: AddExpenseM
     if (splitType === 'equal') {
       const eq = calculateEqualSplit(numAmount, selectedUserIds);
       splitsPayload = eq.map((s) => ({
-        id: 's_' + Math.random().toString(36).substr(2, 9),
-        expense_id: '',
+        id: generateUUID(),
+        expense_id: expenseToEdit ? expenseToEdit.id : '',
         user_id: s.userId,
         amount_owed: s.amount,
         user: users.find((u) => u.id === s.userId),
       }));
     } else if (splitType === 'exact') {
       splitsPayload = selectedUserIds.map((uid) => ({
-        id: 's_' + Math.random().toString(36).substr(2, 9),
-        expense_id: '',
+        id: generateUUID(),
+        expense_id: expenseToEdit ? expenseToEdit.id : '',
         user_id: uid,
         amount_owed: parseFloat(exactAmounts[uid] || '0'),
         user: users.find((u) => u.id === uid),
@@ -218,8 +326,8 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId }: AddExpenseM
       }));
       const calc = calculatePercentageSplit(numAmount, parts);
       splitsPayload = calc.splits.map((s) => ({
-        id: 's_' + Math.random().toString(36).substr(2, 9),
-        expense_id: '',
+        id: generateUUID(),
+        expense_id: expenseToEdit ? expenseToEdit.id : '',
         user_id: s.userId,
         amount_owed: s.amount,
         percentage: parseFloat(percentages[s.userId] || '0'),
@@ -232,8 +340,8 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId }: AddExpenseM
       }));
       const calc = calculateSharesSplit(numAmount, parts);
       splitsPayload = calc.splits.map((s) => ({
-        id: 's_' + Math.random().toString(36).substr(2, 9),
-        expense_id: '',
+        id: generateUUID(),
+        expense_id: expenseToEdit ? expenseToEdit.id : '',
         user_id: s.userId,
         amount_owed: s.amount,
         shares: parseFloat(shares[s.userId] || '1'),
@@ -241,19 +349,35 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId }: AddExpenseM
       }));
     }
 
-    addExpense({
-      group_id: groupId || null,
-      description: description.trim(),
-      amount: numAmount,
-      currency: 'INR',
-      date: new Date(date).toISOString(),
-      category_id: categoryId,
-      notes: notes.trim(),
-      receipt_url: receiptUrl || undefined,
-      split_type: splitType,
-      payers: payersPayload,
-      splits: splitsPayload,
-    });
+    if (expenseToEdit) {
+      updateExpense(expenseToEdit.id, {
+        group_id: groupId || null,
+        description: description.trim(),
+        amount: numAmount,
+        currency: 'INR',
+        date: new Date(date).toISOString(),
+        category_id: categoryId,
+        notes: notes.trim(),
+        receipt_url: receiptUrl || undefined,
+        split_type: splitType,
+        payers: payersPayload,
+        splits: splitsPayload,
+      });
+    } else {
+      addExpense({
+        group_id: groupId || null,
+        description: description.trim(),
+        amount: numAmount,
+        currency: 'INR',
+        date: new Date(date).toISOString(),
+        category_id: categoryId,
+        notes: notes.trim(),
+        receipt_url: receiptUrl || undefined,
+        split_type: splitType,
+        payers: payersPayload,
+        splits: splitsPayload,
+      });
+    }
 
     // Reset form
     setDescription('');
@@ -264,7 +388,7 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId }: AddExpenseM
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Add Shared Expense" maxWidth="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={expenseToEdit ? 'Edit Expense' : 'Add Shared Expense'} maxWidth="lg">
       <form onSubmit={handleSubmit} className="space-y-5">
         {error && (
           <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-lg flex items-center gap-2 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-400">
@@ -279,7 +403,7 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId }: AddExpenseM
             <label className="text-xs font-semibold text-foreground mb-1 block">Group / Context</label>
             <select
               value={groupId}
-              onChange={(e) => setGroupId(e.target.value)}
+              onChange={(e) => handleGroupChange(e.target.value)}
               className="w-full h-10 rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <option value="">Individual / Non-group</option>
@@ -600,7 +724,7 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId }: AddExpenseM
             disabled={!isSplitValid || !isPayerValid || numAmount <= 0}
             className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[120px]"
           >
-            Save Expense
+            {expenseToEdit ? 'Save Changes' : 'Save Expense'}
           </Button>
         </div>
       </form>

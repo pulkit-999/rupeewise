@@ -17,15 +17,17 @@ import {
   Receipt,
   Tag,
   ExternalLink,
+  Pencil,
 } from 'lucide-react';
 
 interface ExpenseDetailModalProps {
   expense: Expense | null;
   isOpen: boolean;
   onClose: () => void;
+  onEdit?: (expense: Expense) => void;
 }
 
-export function ExpenseDetailModal({ expense, isOpen, onClose }: ExpenseDetailModalProps) {
+export function ExpenseDetailModal({ expense, isOpen, onClose, onEdit }: ExpenseDetailModalProps) {
   const { currentUser, deleteExpense, addComment, users } = useAppStore();
   const [newComment, setNewComment] = useState('');
 
@@ -200,10 +202,25 @@ export function ExpenseDetailModal({ expense, isOpen, onClose }: ExpenseDetailMo
 
         {/* Footer Actions */}
         <div className="flex items-center justify-between pt-3 border-t border-border">
-          <Button variant="ghost" size="sm" onClick={handleDelete} className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40">
-            <Trash2 className="w-4 h-4 mr-1.5" />
-            Delete Expense
-          </Button>
+          <div className="flex items-center gap-2">
+            {onEdit && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  onEdit(expense);
+                }}
+                className="text-foreground hover:bg-muted"
+              >
+                <Pencil className="w-4 h-4 mr-1.5" />
+                Edit Expense
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={handleDelete} className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40">
+              <Trash2 className="w-4 h-4 mr-1.5" />
+              Delete Expense
+            </Button>
+          </div>
           <Button variant="outline" size="sm" onClick={onClose}>
             Close
           </Button>

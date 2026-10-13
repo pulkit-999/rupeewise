@@ -87,3 +87,14 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(150, 150, 150, 0.5);
 }
+
+/* Hide increase/decrease arrows for number inputs across all browsers */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+

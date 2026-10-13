@@ -36,6 +36,13 @@ export function generateUUID(): string {
   });
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function ensureValidUUID(id?: string): string {
+  if (id && UUID_REGEX.test(id)) return id;
+  return generateUUID();
+}
+
 export const DEFAULT_USER: User = {
   id: '00000000-0000-0000-0000-000000000001',
   email: 'you@example.com',
@@ -49,20 +56,47 @@ export const DEFAULT_USER: User = {
 const USER_STORAGE_KEY = 'rupeewise_device_user_v2';
 const STORAGE_KEY = 'rupeewise_app_state_v2';
 
+async function ensureUserInSupabase(supabase: any, user: User): Promise<string> {
+  const validId = ensureValidUUID(user.id);
+  const safeEmail = user.email && !user.email.includes('example.com')
+    ? user.email
+    : `user_${validId.replace(/-/g, '').slice(0, 10)}@rupeewise.app`;
+
+  try {
+    const { error } = await supabase.from('users').upsert(
+      {
+        id: validId,
+        email: safeEmail,
+        full_name: user.full_name || 'Member',
+        avatar_url: user.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.full_name || 'You')}`,
+        default_currency: 'INR',
+        upi_id: user.upi_id || null,
+      },
+      { onConflict: 'id' }
+    );
+    if (error) {
+      console.warn('ensureUserInSupabase warning:', error.message);
+    }
+  } catch (e) {
+    console.warn('ensureUserInSupabase error:', e);
+  }
+  return validId;
+}
+
 function getDeviceUser(): User {
   if (typeof window === 'undefined') return DEFAULT_USER;
   try {
     const saved = localStorage.getItem(USER_STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed && parsed.id) return parsed;
+      if (parsed && parsed.id && UUID_REGEX.test(parsed.id)) return parsed;
     }
   } catch {}
 
   const id = generateUUID();
   const newUser: User = {
     id,
-    email: `user_${id.slice(0, 8)}@rupeewise.app`,
+    email: `user_${id.replace(/-/g, '').slice(0, 10)}@rupeewise.app`,
     full_name: 'You',
     avatar_url: `https://api.dicebear.com/7.x/initials/svg?seed=You`,
     default_currency: 'INR',
@@ -143,14 +177,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const supabase = createClient();
-        await supabase.from('users').upsert({
-          id: u.id,
-          email: u.email,
-          full_name: u.full_name,
-          avatar_url: u.avatar_url,
-          default_currency: u.default_currency || 'INR',
-          upi_id: u.upi_id || null,
-        });
+        await ensureUserInSupabase(supabase, u);
       } catch {}
     })();
   };
@@ -161,14 +188,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const supabase = createClient();
 
       // Upsert current device user into Supabase so foreign keys never fail
-      await supabase.from('users').upsert({
-        id: activeUser.id,
-        email: activeUser.email,
-        full_name: activeUser.full_name,
-        avatar_url: activeUser.avatar_url,
-        default_currency: activeUser.default_currency || 'INR',
-        upi_id: activeUser.upi_id || null,
-      });
+      const validUserId = await ensureUserInSupabase(supabase, activeUser);
 
       // Parallel fetch of all shared records from Cloud PostgreSQL
       const [
@@ -189,8 +209,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (usersRes.data && usersRes.data.length > 0) {
         const fetchedUsers = [...usersRes.data];
-        if (!fetchedUsers.some((u) => u.id === activeUser.id)) {
-          fetchedUsers.push(activeUser);
+        if (!fetchedUsers.some((u) => u.id === validUserId)) {
+          fetchedUsers.push({ ...activeUser, id: validUserId });
         }
         setUsers(fetchedUsers);
       }
@@ -358,15 +378,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const supabase = createClient();
-        await supabase.from('groups').insert({
+        const validCreatorId = await ensureUserInSupabase(supabase, currentUser);
+
+        for (const m of members) {
+          if (m.user) await ensureUserInSupabase(supabase, m.user);
+        }
+
+        const { error: gErr } = await supabase.from('groups').insert({
           id: groupId,
           name: newGroup.name,
           description: newGroup.description || null,
           type: newGroup.type,
           currency: newGroup.currency || 'INR',
-          created_by: currentUser.id,
+          created_by: validCreatorId,
         });
-        await supabase.from('group_members').insert(
+        if (gErr) console.error('Failed to save group in Supabase:', gErr);
+
+        const { error: mErr } = await supabase.from('group_members').insert(
           members.map((m) => ({
             id: m.id,
             group_id: groupId,
@@ -374,17 +402,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             role: m.role,
           }))
         );
+        if (mErr) console.error('Failed to save group members in Supabase:', mErr);
+
         await supabase.from('activity_logs').insert({
           id: activity.id,
           group_id: groupId,
-          user_id: currentUser.id,
+          user_id: validCreatorId,
           entity_type: 'group',
           entity_id: groupId,
           action: 'created',
           details: activity.details,
         });
       } catch (e) {
-        console.warn('Error saving group to Supabase:', e);
+        console.error('Error saving group to Supabase:', e);
       }
     })();
 
@@ -500,13 +530,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const expenseId = generateUUID();
     const payersWithIds = (expenseData.payers || []).map((p) => ({
       ...p,
-      id: p.id || generateUUID(),
+      id: ensureValidUUID(p.id),
       expense_id: expenseId,
       user: usersMap.get(p.user_id),
     }));
     const splitsWithIds = (expenseData.splits || []).map((s) => ({
       ...s,
-      id: s.id || generateUUID(),
+      id: ensureValidUUID(s.id),
       expense_id: expenseId,
       user: usersMap.get(s.user_id),
     }));
@@ -548,7 +578,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const supabase = createClient();
-        await supabase.from('expenses').insert({
+        const validCreatorId = await ensureUserInSupabase(supabase, currentUser);
+
+        for (const p of payersWithIds) {
+          if (p.user) await ensureUserInSupabase(supabase, p.user);
+        }
+        for (const s of splitsWithIds) {
+          if (s.user) await ensureUserInSupabase(supabase, s.user);
+        }
+
+        const { error: expErr } = await supabase.from('expenses').insert({
           id: expenseId,
           group_id: expenseData.group_id || null,
           description: expenseData.description,
@@ -557,12 +596,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           date: expenseData.date || new Date().toISOString(),
           category_id: expenseData.category_id,
           notes: expenseData.notes || null,
+          receipt_url: expenseData.receipt_url || null,
           split_type: expenseData.split_type,
-          created_by: currentUser.id,
+          created_by: validCreatorId,
         });
+        if (expErr) console.error('Failed to save expense in Supabase:', expErr);
 
         if (payersWithIds.length > 0) {
-          await supabase.from('expense_payers').insert(
+          const { error: pErr } = await supabase.from('expense_payers').insert(
             payersWithIds.map((p) => ({
               id: p.id,
               expense_id: expenseId,
@@ -570,10 +611,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               amount_paid: p.amount_paid,
             }))
           );
+          if (pErr) console.error('Failed to save expense payers in Supabase:', pErr);
         }
 
         if (splitsWithIds.length > 0) {
-          await supabase.from('expense_splits').insert(
+          const { error: sErr } = await supabase.from('expense_splits').insert(
             splitsWithIds.map((s) => ({
               id: s.id,
               expense_id: expenseId,
@@ -583,19 +625,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               shares: s.shares || null,
             }))
           );
+          if (sErr) console.error('Failed to save expense splits in Supabase:', sErr);
         }
 
         await supabase.from('activity_logs').insert({
           id: activity.id,
           group_id: expenseData.group_id || null,
-          user_id: currentUser.id,
+          user_id: validCreatorId,
           entity_type: 'expense',
           entity_id: expenseId,
           action: 'created',
           details: activity.details,
         });
       } catch (e) {
-        console.warn('Error saving expense to Supabase:', e);
+        console.error('Error saving expense to Supabase:', e);
       }
     })();
 
@@ -603,11 +646,135 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateExpense = (id: string, updates: Partial<Expense>) => {
+    const existing = expenses.find((e) => e.id === id);
+    if (!existing) return;
+
+    const payersWithIds = updates.payers
+      ? updates.payers.map((p) => ({
+          ...p,
+          id: ensureValidUUID(p.id),
+          expense_id: id,
+          user: p.user || usersMap.get(p.user_id),
+        }))
+      : undefined;
+
+    const splitsWithIds = updates.splits
+      ? updates.splits.map((s) => ({
+          ...s,
+          id: ensureValidUUID(s.id),
+          expense_id: id,
+          user: s.user || usersMap.get(s.user_id),
+        }))
+      : undefined;
+
+    const targetGroupId = updates.group_id !== undefined ? updates.group_id : existing.group_id;
+    const targetCategoryId = updates.category_id !== undefined ? updates.category_id : existing.category_id;
+
+    const updatedExpense: Expense = {
+      ...existing,
+      ...updates,
+      ...(payersWithIds ? { payers: payersWithIds } : {}),
+      ...(splitsWithIds ? { splits: splitsWithIds } : {}),
+      category: categories.find((c) => c.id === targetCategoryId) || existing.category,
+      group: groups.find((g) => g.id === targetGroupId) || existing.group,
+      updated_at: new Date().toISOString(),
+    };
+
     setExpenses((prev) =>
-      prev.map((e) =>
-        e.id === id ? { ...e, ...updates, updated_at: new Date().toISOString() } : e
-      )
+      prev.map((e) => (e.id === id ? updatedExpense : e))
     );
+
+    const activity: ActivityLog = {
+      id: generateUUID(),
+      group_id: targetGroupId,
+      user_id: currentUser.id,
+      entity_type: 'expense',
+      entity_id: id,
+      action: 'updated',
+      details: {
+        title: `Updated "${updatedExpense.description}"`,
+        description: `${currentUser.full_name} updated the expense of ${formatINR(updatedExpense.amount)}`,
+        amount: updatedExpense.amount,
+        currency: updatedExpense.currency,
+      },
+      created_at: new Date().toISOString(),
+      user: currentUser,
+    };
+    setActivities((prev) => [activity, ...prev]);
+
+    (async () => {
+      try {
+        const supabase = createClient();
+        await ensureUserInSupabase(supabase, currentUser);
+
+        if (payersWithIds) {
+          for (const p of payersWithIds) {
+            if (p.user) await ensureUserInSupabase(supabase, p.user);
+          }
+        }
+        if (splitsWithIds) {
+          for (const s of splitsWithIds) {
+            if (s.user) await ensureUserInSupabase(supabase, s.user);
+          }
+        }
+
+        const expenseUpdatePayload: any = {
+          updated_at: new Date().toISOString(),
+        };
+        if (updates.description !== undefined) expenseUpdatePayload.description = updates.description;
+        if (updates.amount !== undefined) expenseUpdatePayload.amount = updates.amount;
+        if (updates.currency !== undefined) expenseUpdatePayload.currency = updates.currency;
+        if (updates.date !== undefined) expenseUpdatePayload.date = updates.date;
+        if (updates.category_id !== undefined) expenseUpdatePayload.category_id = updates.category_id;
+        if (updates.notes !== undefined) expenseUpdatePayload.notes = updates.notes || null;
+        if (updates.receipt_url !== undefined) expenseUpdatePayload.receipt_url = updates.receipt_url || null;
+        if (updates.split_type !== undefined) expenseUpdatePayload.split_type = updates.split_type;
+        if (updates.group_id !== undefined) expenseUpdatePayload.group_id = updates.group_id || null;
+
+        const { error: expErr } = await supabase.from('expenses').update(expenseUpdatePayload).eq('id', id);
+        if (expErr) console.error('Failed to update expense in Supabase:', expErr);
+
+        if (payersWithIds) {
+          await supabase.from('expense_payers').delete().eq('expense_id', id);
+          const { error: pErr } = await supabase.from('expense_payers').insert(
+            payersWithIds.map((p) => ({
+              id: p.id,
+              expense_id: id,
+              user_id: p.user_id,
+              amount_paid: p.amount_paid,
+            }))
+          );
+          if (pErr) console.error('Failed to update expense payers in Supabase:', pErr);
+        }
+
+        if (splitsWithIds) {
+          await supabase.from('expense_splits').delete().eq('expense_id', id);
+          const { error: sErr } = await supabase.from('expense_splits').insert(
+            splitsWithIds.map((s) => ({
+              id: s.id,
+              expense_id: id,
+              user_id: s.user_id,
+              amount_owed: s.amount_owed,
+              percentage: s.percentage || null,
+              shares: s.shares || null,
+            }))
+          );
+          if (sErr) console.error('Failed to update expense splits in Supabase:', sErr);
+        }
+
+        await supabase.from('activity_logs').insert({
+          id: activity.id,
+          group_id: targetGroupId || null,
+          user_id: currentUser.id,
+          entity_type: 'expense',
+          entity_id: id,
+          action: 'updated',
+          details: activity.details,
+        });
+      } catch (e) {
+        console.error('Error updating expense in Supabase:', e);
+      }
+    })();
   };
 
   const deleteExpense = (id: string) => {
@@ -723,7 +890,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const supabase = createClient();
-        await supabase.from('settlements').insert({
+        const payerUser = usersMap.get(settlementData.payer_id);
+        const receiverUser = usersMap.get(settlementData.receiver_id);
+        if (payerUser) await ensureUserInSupabase(supabase, payerUser);
+        if (receiverUser) await ensureUserInSupabase(supabase, receiverUser);
+
+        const { error: sErr } = await supabase.from('settlements').insert({
           id: settlementId,
           group_id: settlementData.group_id || null,
           payer_id: settlementData.payer_id,
@@ -734,6 +906,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           reference_note: settlementData.reference_note || null,
           settled_at: settlementData.settled_at || new Date().toISOString(),
         });
+        if (sErr) console.error('Failed to save settlement in Supabase:', sErr);
+
         await supabase.from('activity_logs').insert({
           id: activity.id,
           group_id: settlementData.group_id || null,
@@ -744,7 +918,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           details: activity.details,
         });
       } catch (e) {
-        console.warn('Error saving settlement to Supabase:', e);
+        console.error('Error saving settlement to Supabase:', e);
       }
     })();
 

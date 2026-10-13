@@ -21,6 +21,7 @@ export default function DashboardPage() {
   const { expenses, groups, currentUser } = useAppStore();
 
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterGroup, setFilterGroup] = useState<string>('all');
 
@@ -198,12 +199,21 @@ export default function DashboardPage() {
         expense={selectedExpense}
         isOpen={!!selectedExpense}
         onClose={() => setSelectedExpense(null)}
+        onEdit={(exp) => {
+          setSelectedExpense(null);
+          setEditingExpense(exp);
+          setIsAddExpenseOpen(true);
+        }}
       />
 
       {/* Page-level modals */}
       <AddExpenseModal
         isOpen={isAddExpenseOpen}
-        onClose={() => setIsAddExpenseOpen(false)}
+        onClose={() => {
+          setIsAddExpenseOpen(false);
+          setEditingExpense(null);
+        }}
+        expenseToEdit={editingExpense}
       />
       <SettleModal
         isOpen={isSettleOpen}
