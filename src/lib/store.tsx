@@ -64,23 +64,35 @@ interface AppContextType {
   getGroupDebts: (groupId: string, simplified?: boolean) => ReturnType<typeof simplifyDebts>;
   getFriendBalance: (friendId: string) => number;
   
-  // Reset
+  // Reset and Data Management
+  clearAllData: () => void;
+  loadDemoData: () => void;
   resetDemoData: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'rupeewise_app_state_v1';
+const STORAGE_KEY = 'rupeewise_app_state_v2';
+
+export const DEFAULT_USER: User = {
+  id: 'usr_me',
+  email: 'user@example.com',
+  full_name: 'You',
+  avatar_url: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+  default_currency: 'INR',
+  upi_id: '',
+  created_at: '2024-01-01T00:00:00.000Z',
+};
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0]); // Default: Arjun Mehta
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
+  const [currentUser, setCurrentUser] = useState<User>(DEFAULT_USER);
+  const [users, setUsers] = useState<User[]>([DEFAULT_USER]);
   const [categories] = useState<Category[]>(MOCK_CATEGORIES);
-  const [groups, setGroups] = useState<Group[]>(MOCK_GROUPS);
-  const [expenses, setExpenses] = useState<Expense[]>(MOCK_EXPENSES);
-  const [settlements, setSettlements] = useState<Settlement[]>(MOCK_SETTLEMENTS);
-  const [friendships, setFriendships] = useState<Friendship[]>(MOCK_FRIENDSHIPS);
-  const [activities, setActivities] = useState<ActivityLog[]>(MOCK_ACTIVITIES);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [settlements, setSettlements] = useState<Settlement[]>([]);
+  const [friendships, setFriendships] = useState<Friendship[]>([]);
+  const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
   // Load from local storage
@@ -96,7 +108,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (parsed.friendships) setFriendships(parsed.friendships);
         if (parsed.activities) setActivities(parsed.activities);
         if (parsed.currentUserId) {
-          const user = (parsed.users || MOCK_USERS).find((u: User) => u.id === parsed.currentUserId);
+          const user = (parsed.users || [DEFAULT_USER]).find((u: User) => u.id === parsed.currentUserId);
           if (user) setCurrentUser(user);
         }
       }
@@ -126,7 +138,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentUser, users, groups, expenses, settlements, friendships, activities, isLoaded]);
 
-  const resetDemoData = () => {
+  const clearAllData = () => {
+    setGroups([]);
+    setExpenses([]);
+    setSettlements([]);
+    setFriendships([]);
+    setActivities([]);
+    setUsers([currentUser]);
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem('rupeewise_app_state_v1');
+  };
+
+  const loadDemoData = () => {
     setCurrentUser(MOCK_USERS[0]);
     setUsers(MOCK_USERS);
     setGroups(MOCK_GROUPS);
@@ -134,8 +157,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSettlements(MOCK_SETTLEMENTS);
     setFriendships(MOCK_FRIENDSHIPS);
     setActivities(MOCK_ACTIVITIES);
-    localStorage.removeItem(STORAGE_KEY);
   };
+
+  const resetDemoData = clearAllData;
 
   // Helper map for fast user lookups
   const usersMap = new Map<string, User>(users.map((u) => [u.id, u]));
@@ -549,6 +573,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         getGroupBalances,
         getGroupDebts,
         getFriendBalance,
+        clearAllData,
+        loadDemoData,
         resetDemoData,
       }}
     >

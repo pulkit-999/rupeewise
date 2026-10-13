@@ -23,7 +23,7 @@ interface NavbarProps {
 }
 
 export function Navbar({ onOpenAddExpense }: NavbarProps) {
-  const { currentUser, setCurrentUser, users, resetDemoData, getUserNetBalance } = useAppStore();
+  const { currentUser, setCurrentUser, users, clearAllData, getUserNetBalance } = useAppStore();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
@@ -83,16 +83,16 @@ export function Navbar({ onOpenAddExpense }: NavbarProps) {
             {isDarkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5" />}
           </Button>
 
-          {/* Reset Demo Data */}
+          {/* Clear / Start Fresh Data */}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => {
-              if (confirm('Reset demo state to initial seed data?')) {
-                resetDemoData();
+              if (confirm('Clear all data and start with a completely clean slate?')) {
+                clearAllData();
               }
             }}
-            title="Reset demo data"
+            title="Clear all data & start fresh"
             className="text-muted-foreground hidden md:inline-flex"
           >
             <RotateCcw className="w-4 h-4" />
