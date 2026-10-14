@@ -53,8 +53,8 @@ export const DEFAULT_USER: User = {
   created_at: '2024-01-01T00:00:00.000Z',
 };
 
-const USER_STORAGE_KEY = 'rupeewise_device_user_v2';
-const STORAGE_KEY = 'rupeewise_app_state_v2';
+const USER_STORAGE_KEY = 'rupeewise_device_user_v4';
+const STORAGE_KEY = 'rupeewise_app_state_v4';
 
 async function ensureUserInSupabase(supabase: any, user: User): Promise<string> {
   const validId = ensureValidUUID(user.id);
@@ -82,35 +82,38 @@ async function ensureUserInSupabase(supabase: any, user: User): Promise<string> 
   return validId;
 }
 
-function getDeviceUser(): User {
-  if (typeof window === 'undefined') return DEFAULT_USER;
+function getDeviceUser(): User & { isOnboarded?: boolean } {
+  if (typeof window === 'undefined') return { ...DEFAULT_USER, isOnboarded: false };
   try {
     const saved = localStorage.getItem(USER_STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed && parsed.id && UUID_REGEX.test(parsed.id)) return parsed;
+      if (parsed && parsed.id && parsed.email && !parsed.email.includes('rupeewise.app') && parsed.isOnboarded) {
+        return { ...parsed, isOnboarded: true };
+      }
     }
   } catch {}
 
-  const id = generateUUID();
-  const newUser: User = {
-    id,
-    email: `user_${id.replace(/-/g, '').slice(0, 10)}@rupeewise.app`,
-    full_name: 'You',
-    avatar_url: `https://api.dicebear.com/7.x/initials/svg?seed=You`,
+  return {
+    id: generateUUID(),
+    email: '',
+    full_name: '',
+    avatar_url: '',
     default_currency: 'INR',
     upi_id: '',
     created_at: new Date().toISOString(),
+    isOnboarded: false,
   };
-  try {
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(newUser));
-  } catch {}
-  return newUser;
 }
 
 interface AppContextType {
   currentUser: User;
   setCurrentUser: (user: User) => void;
+  isOnboarded: boolean;
+  isLoaded: boolean;
+  onboardUser: (data: { full_name: string; email: string; upi_id?: string }) => Promise<User>;
+  joinGroupById: (groupId: string, user: User) => Promise<boolean>;
+  switchUser: (email: string) => Promise<User>;
   users: User[];
   categories: Category[];
   groups: Group[];
@@ -158,6 +161,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUserState] = useState<User>(DEFAULT_USER);
+  const [isOnboarded, setIsOnboarded] = useState<boolean>(false);
   const [users, setUsers] = useState<User[]>([DEFAULT_USER]);
   const [categories] = useState<Category[]>(MOCK_CATEGORIES);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -170,9 +174,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setCurrentUser = (u: User) => {
     setCurrentUserState(u);
     try {
-      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(u));
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify({ ...u, isOnboarded: true }));
     } catch {}
-    // Background upsert user in Supabase
     (async () => {
       try {
         const supabase = createClient();
@@ -181,57 +184,241 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })();
   };
 
-  // Cloud sync from Supabase
+  // Cloud sync from Supabase - scoped only to activeUser's groups and data
   const syncWithSupabase = useCallback(async (activeUser: User) => {
+    if (!activeUser || !activeUser.email || activeUser.email.includes('rupeewise.app')) {
+      return;
+    }
+
     try {
       const supabase = createClient();
-
-      // Upsert current device user into Supabase so foreign keys never fail
       const validUserId = await ensureUserInSupabase(supabase, activeUser);
 
-      // Parallel fetch of all shared records from Cloud PostgreSQL
-      const [
-        usersRes,
-        groupsRes,
-        expensesRes,
-        settlementsRes,
-        activitiesRes,
-        friendshipsRes,
-      ] = await Promise.all([
-        supabase.from('users').select('*'),
-        supabase.from('groups').select('*, members:group_members(*, user:users(*))'),
-        supabase.from('expenses').select('*, payers:expense_payers(*, user:users(*)), splits:expense_splits(*, user:users(*)), category:categories(*)'),
-        supabase.from('settlements').select('*, payer:users!settlements_payer_id_fkey(*), receiver:users!settlements_receiver_id_fkey(*)'),
-        supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(50),
-        supabase.from('friendships').select('*, friend:users!friendships_friend_id_fkey(*)'),
+      // 1. Fetch group IDs where activeUser is a member or creator
+      const [membershipsRes, createdGroupsRes] = await Promise.all([
+        supabase.from('group_members').select('group_id').eq('user_id', validUserId),
+        supabase.from('groups').select('id').eq('created_by', validUserId),
       ]);
 
-      if (usersRes.data && usersRes.data.length > 0) {
-        const fetchedUsers = [...usersRes.data];
-        if (!fetchedUsers.some((u) => u.id === validUserId)) {
-          fetchedUsers.push({ ...activeUser, id: validUserId });
-        }
-        setUsers(fetchedUsers);
-      }
+      const userGroupIds = Array.from(
+        new Set([
+          ...(membershipsRes.data || []).map((m: any) => m.group_id),
+          ...(createdGroupsRes.data || []).map((g: any) => g.id),
+        ])
+      );
 
-      if (groupsRes.data) setGroups(groupsRes.data);
-      if (expensesRes.data) setExpenses(expensesRes.data);
-      if (settlementsRes.data) setSettlements(settlementsRes.data);
-      if (activitiesRes.data) setActivities(activitiesRes.data);
-      if (friendshipsRes.data) setFriendships(friendshipsRes.data);
+      // 2. Fetch those groups with their members
+      let userGroups: Group[] = [];
+      if (userGroupIds.length > 0) {
+        const { data: gData } = await supabase
+          .from('groups')
+          .select('*, members:group_members(*, user:users(*))')
+          .in('id', userGroupIds);
+        if (gData) userGroups = gData;
+      }
+      setGroups(userGroups);
+
+      // 3. Fetch user's expenses (groups or direct)
+      let userExpenses: Expense[] = [];
+      if (userGroupIds.length > 0) {
+        const { data: expData } = await supabase
+          .from('expenses')
+          .select('*, payers:expense_payers(*, user:users(*)), splits:expense_splits(*, user:users(*)), category:categories(*)')
+          .or(`group_id.in.(${userGroupIds.join(',')}),created_by.eq.${validUserId}`);
+        if (expData) userExpenses = expData;
+      } else {
+        const { data: expData } = await supabase
+          .from('expenses')
+          .select('*, payers:expense_payers(*, user:users(*)), splits:expense_splits(*, user:users(*)), category:categories(*)')
+          .eq('created_by', validUserId);
+        if (expData) userExpenses = expData;
+      }
+      setExpenses(userExpenses);
+
+      // 4. Fetch user's settlements
+      let userSettlements: Settlement[] = [];
+      if (userGroupIds.length > 0) {
+        const { data: stlData } = await supabase
+          .from('settlements')
+          .select('*, payer:users!settlements_payer_id_fkey(*), receiver:users!settlements_receiver_id_fkey(*)')
+          .or(`group_id.in.(${userGroupIds.join(',')}),payer_id.eq.${validUserId},receiver_id.eq.${validUserId}`);
+        if (stlData) userSettlements = stlData;
+      } else {
+        const { data: stlData } = await supabase
+          .from('settlements')
+          .select('*, payer:users!settlements_payer_id_fkey(*), receiver:users!settlements_receiver_id_fkey(*)')
+          .or(`payer_id.eq.${validUserId},receiver_id.eq.${validUserId}`);
+        if (stlData) userSettlements = stlData;
+      }
+      setSettlements(userSettlements);
+
+      // 5. Fetch friendships
+      const { data: frData } = await supabase
+        .from('friendships')
+        .select('*, friend:users!friendships_friend_id_fkey(*)');
+      const userFriendships = (frData || [])
+        .filter((f: any) => f.user_id === validUserId || f.friend_id === validUserId)
+        .map((f: any) => ({
+          ...f,
+          friend: f.user_id === validUserId ? f.friend : (f.friend || { id: f.user_id, full_name: 'Friend', email: '' }),
+        }));
+      setFriendships(userFriendships);
+
+      // 6. Gather all relevant users: activeUser + group members + friends
+      const usersMap = new Map<string, User>();
+      usersMap.set(validUserId, { ...activeUser, id: validUserId });
+
+      for (const g of userGroups) {
+        for (const m of g.members || []) {
+          if (m.user) usersMap.set(m.user.id, m.user);
+        }
+      }
+      for (const f of userFriendships) {
+        if (f.friend) usersMap.set(f.friend.id, f.friend);
+      }
+      setUsers(Array.from(usersMap.values()));
+
+      // 7. Activity logs
+      let userActivities: ActivityLog[] = [];
+      if (userGroupIds.length > 0) {
+        const { data: actData } = await supabase
+          .from('activity_logs')
+          .select('*')
+          .or(`group_id.in.(${userGroupIds.join(',')}),user_id.eq.${validUserId}`)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (actData) userActivities = actData;
+      } else {
+        const { data: actData } = await supabase
+          .from('activity_logs')
+          .select('*')
+          .eq('user_id', validUserId)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (actData) userActivities = actData;
+      }
+      setActivities(userActivities);
     } catch (err) {
       console.warn('Supabase cloud sync notification:', err);
     }
   }, []);
 
+  const onboardUser = async (data: { full_name: string; email: string; upi_id?: string }): Promise<User> => {
+    const cleanEmail = data.email.trim().toLowerCase();
+    const cleanName = data.full_name.trim();
+    const supabase = createClient();
+
+    let matchedUser: User | null = null;
+    try {
+      const { data: existingUsers } = await supabase
+        .from('users')
+        .select('*')
+        .ilike('email', cleanEmail)
+        .limit(1);
+
+      if (existingUsers && existingUsers.length > 0) {
+        matchedUser = existingUsers[0];
+      }
+    } catch (e) {
+      console.warn('Error checking existing user in Supabase:', e);
+    }
+
+    let finalUser: User;
+    if (matchedUser) {
+      finalUser = {
+        ...matchedUser,
+        full_name: cleanName || matchedUser.full_name,
+        upi_id: data.upi_id || matchedUser.upi_id,
+      };
+      await supabase.from('users').update({
+        full_name: finalUser.full_name,
+        upi_id: finalUser.upi_id || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', finalUser.id);
+    } else {
+      finalUser = {
+        id: generateUUID(),
+        email: cleanEmail,
+        full_name: cleanName || cleanEmail.split('@')[0],
+        avatar_url: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanName || cleanEmail)}`,
+        default_currency: 'INR',
+        upi_id: data.upi_id || '',
+        created_at: new Date().toISOString(),
+      };
+      await ensureUserInSupabase(supabase, finalUser);
+    }
+
+    const savedProfile = { ...finalUser, isOnboarded: true };
+    setCurrentUserState(finalUser);
+    setIsOnboarded(true);
+    setUsers([finalUser]);
+
+    try {
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(savedProfile));
+    } catch {}
+
+    await syncWithSupabase(finalUser);
+    return finalUser;
+  };
+
+  const switchUser = async (email: string): Promise<User> => {
+    return onboardUser({ full_name: '', email });
+  };
+
+  const joinGroupById = async (groupId: string, user: User): Promise<boolean> => {
+    const supabase = createClient();
+    const validUserId = await ensureUserInSupabase(supabase, user);
+
+    const { data: grp } = await supabase.from('groups').select('id, name').eq('id', groupId).single();
+    if (!grp) return false;
+
+    const { data: existing } = await supabase
+      .from('group_members')
+      .select('*')
+      .eq('group_id', groupId)
+      .eq('user_id', validUserId);
+
+    if (!existing || existing.length === 0) {
+      const memberId = generateUUID();
+      const { error } = await supabase.from('group_members').insert({
+        id: memberId,
+        group_id: groupId,
+        user_id: validUserId,
+        role: 'member',
+      });
+      if (error) {
+        console.error('Failed to join group in Supabase:', error);
+        return false;
+      }
+
+      await supabase.from('activity_logs').insert({
+        id: generateUUID(),
+        group_id: groupId,
+        user_id: validUserId,
+        entity_type: 'group',
+        entity_id: groupId,
+        action: 'created',
+        details: {
+          title: `${user.full_name} joined the group`,
+          description: `${user.full_name} (${user.email}) joined via invite link`,
+        },
+      });
+    }
+
+    await syncWithSupabase(user);
+    return true;
+  };
+
   // Initial load
   useEffect(() => {
     const devUser = getDeviceUser();
     setCurrentUserState(devUser);
+    const onboarded = !!devUser.isOnboarded && !!devUser.email;
+    setIsOnboarded(onboarded);
 
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
+      if (stored && onboarded) {
         const parsed = JSON.parse(stored);
         if (parsed.users) setUsers(parsed.users);
         if (parsed.groups) setGroups(parsed.groups);
@@ -246,8 +433,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setIsLoaded(true);
     }
 
-    // Trigger cloud synchronization
-    syncWithSupabase(devUser);
+    if (onboarded) {
+      syncWithSupabase(devUser);
+    } else {
+      setUsers([devUser]);
+      setGroups([]);
+      setExpenses([]);
+      setSettlements([]);
+      setFriendships([]);
+      setActivities([]);
+    }
 
     // Setup Supabase Realtime channel so any updates from friends sync live
     const supabase = createClient();
@@ -1201,6 +1396,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       value={{
         currentUser,
         setCurrentUser,
+        isOnboarded,
+        isLoaded,
+        onboardUser,
+        joinGroupById,
+        switchUser,
         users,
         categories,
         groups,

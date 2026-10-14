@@ -1,34 +1,79 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppStore } from '@/lib/store';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
-import { Check, Smartphone, IndianRupee, Trash2, Database, Sparkles } from 'lucide-react';
+import {
+  Check,
+  Smartphone,
+  IndianRupee,
+  Trash2,
+  Database,
+  Sparkles,
+  ArrowRightLeft,
+  Mail,
+  User as UserIcon,
+} from 'lucide-react';
 
 export default function ProfilePage() {
-  const { currentUser, setCurrentUser, users, clearAllData, loadDemoData } = useAppStore();
+  const { currentUser, setCurrentUser, switchUser, clearAllData, loadDemoData } = useAppStore();
 
   const [fullName, setFullName] = useState(currentUser.full_name);
   const [upiId, setUpiId] = useState(currentUser.upi_id || '');
+  const [switchEmail, setSwitchEmail] = useState('');
+  const [isSwitching, setIsSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFullName(currentUser.full_name);
+    setUpiId(currentUser.upi_id || '');
+  }, [currentUser]);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     setCurrentUser({
       ...currentUser,
-      full_name: fullName,
+      full_name: fullName.trim(),
       upi_id: upiId.trim(),
     });
     setSavedMessage(true);
     setTimeout(() => setSavedMessage(false), 2500);
   };
 
+  const handleSwitchAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSwitchError(null);
+    const cleanEmail = switchEmail.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      setSwitchError('Please enter a valid email address.');
+      return;
+    }
+
+    try {
+      setIsSwitching(true);
+      await switchUser(cleanEmail);
+      setStatusMessage(`Switched active account to ${cleanEmail}`);
+      setSwitchEmail('');
+      setTimeout(() => setStatusMessage(null), 3000);
+    } catch (err: any) {
+      setSwitchError(err?.message || 'Failed to switch user account.');
+    } finally {
+      setIsSwitching(false);
+    }
+  };
+
   const handleClearAll = () => {
-    if (confirm('Are you sure you want to delete all expenses, groups, and settlements? This will leave your app completely clean.')) {
+    if (
+      confirm(
+        'Are you sure you want to delete all expenses, groups, and settlements? This will leave your app completely clean.'
+      )
+    ) {
       clearAllData();
       setStatusMessage('All demo data and expenses have been cleared.');
       setTimeout(() => setStatusMessage(null), 3000);
@@ -79,8 +124,8 @@ export default function ProfilePage() {
             <div className="flex items-center space-x-4 pb-2">
               <Avatar src={currentUser.avatar_url} name={currentUser.full_name} size="lg" />
               <div>
-                <h3 className="font-bold text-sm text-foreground">{currentUser.full_name}</h3>
-                <p className="text-xs text-muted-foreground">{currentUser.email}</p>
+                <h3 className="font-bold text-sm text-foreground">{currentUser.full_name || 'My Profile'}</h3>
+                <p className="text-xs text-muted-foreground">{currentUser.email || 'No email set'}</p>
                 <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">
                   Default Currency: Indian Rupee (₹)
                 </div>
@@ -110,6 +155,46 @@ export default function ProfilePage() {
                 Save Changes
               </Button>
             </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* Switch Account */}
+      <Card id="switch-account">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ArrowRightLeft className="w-4 h-4 text-emerald-600" />
+            <span>Switch Account</span>
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Sign in with a different email address to access your other shared groups and balances.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSwitchAccount} className="space-y-3">
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <div className="relative flex-1">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  type="email"
+                  placeholder="Enter email to switch to (e.g. rahul@example.com)"
+                  value={switchEmail}
+                  onChange={(e) => setSwitchEmail(e.target.value)}
+                  className="pl-10 h-10 text-xs"
+                  required
+                />
+              </div>
+              <Button
+                type="submit"
+                disabled={!switchEmail.trim() || isSwitching}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs shrink-0 h-10 px-4"
+              >
+                {isSwitching ? 'Switching...' : 'Switch Account'}
+              </Button>
+            </div>
+            {switchError && (
+              <p className="text-xs text-rose-500 font-medium">{switchError}</p>
+            )}
           </form>
         </CardContent>
       </Card>
@@ -163,49 +248,6 @@ export default function ProfilePage() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Switch Persona (if multiple users exist) */}
-      {users.length > 1 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Switch Active User ({users.length})</CardTitle>
-            <CardDescription className="text-xs">
-              Switch between available user profiles to test balances and settlement requests from their viewpoint.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {users.map((u) => {
-                const isSelected = u.id === currentUser.id;
-                return (
-                  <button
-                    key={u.id}
-                    onClick={() => {
-                      setCurrentUser(u);
-                      setFullName(u.full_name);
-                      setUpiId(u.upi_id || '');
-                    }}
-                    className={`p-3.5 rounded-xl border text-left flex items-center justify-between transition-all ${
-                      isSelected
-                        ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 text-foreground font-semibold'
-                        : 'border-border bg-card hover:bg-muted/40 text-muted-foreground'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-3">
-                      <Avatar src={u.avatar_url} name={u.full_name} size="sm" />
-                      <div>
-                        <div className="text-xs font-bold text-foreground">{u.full_name}</div>
-                        <div className="text-[11px] text-muted-foreground">{u.email}</div>
-                      </div>
-                    </div>
-                    {isSelected && <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />}
-                  </button>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

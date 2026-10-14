@@ -52,7 +52,7 @@ export default function DashboardPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Namaste, {currentUser.full_name.split(' ')[0]} 👋
+            Namaste, {currentUser.full_name?.trim() ? currentUser.full_name.trim().split(' ')[0] : 'Friend'} 👋
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
             Here is your financial balance across shared trips, flat expenses, and friends.

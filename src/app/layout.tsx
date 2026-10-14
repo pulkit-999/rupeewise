@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import './globals.css';
-import { AppProvider } from '@/lib/store';
+import { AppProvider, useAppStore } from '@/lib/store';
 import { Navbar } from '@/components/layout/Navbar';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { MobileNav } from '@/components/layout/MobileNav';
@@ -10,12 +11,18 @@ import { AddExpenseModal } from '@/components/expenses/AddExpenseModal';
 import { SettleModal } from '@/components/settlements/SettleModal';
 import { CreateGroupModal } from '@/components/groups/CreateGroupModal';
 import { AddFriendModal } from '@/components/friends/AddFriendModal';
+import { OnboardingModal } from '@/components/auth/OnboardingModal';
 
 function AppLayoutContent({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const { isOnboarded, isLoaded } = useAppStore();
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [isSettleOpen, setIsSettleOpen] = useState(false);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
+
+  const isJoinRoute = pathname?.startsWith('/join');
+  const showOnboarding = isLoaded && !isOnboarded && !isJoinRoute;
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col font-sans selection:bg-emerald-500/20">
@@ -54,6 +61,7 @@ function AppLayoutContent({ children }: { children: React.ReactNode }) {
         isOpen={isAddFriendOpen}
         onClose={() => setIsAddFriendOpen(false)}
       />
+      <OnboardingModal isOpen={showOnboarding} />
     </div>
   );
 }

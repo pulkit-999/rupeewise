@@ -28,6 +28,8 @@ import {
   LogOut,
   Crown,
   Share2,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 export default function GroupDetailPage() {
@@ -56,6 +58,23 @@ export default function GroupDetailPage() {
   const [isSettleOpen, setIsSettleOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
+  const [copiedInvite, setCopiedInvite] = useState(false);
+
+  const inviteLink =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/join/${group?.id || ''}`
+      : '';
+
+  const handleShareInvite = async () => {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setCopiedInvite(true);
+      setTimeout(() => setCopiedInvite(false), 2500);
+    } catch {
+      // Fallback
+    }
+  };
 
   if (!group) {
     return (
@@ -84,10 +103,10 @@ export default function GroupDetailPage() {
 
     const success = addMemberToGroup(group.id, inviteEmail.trim());
     if (success) {
-      setInviteMessage(`Member invited to ${group.name}!`);
+      setInviteMessage(`Member added to ${group.name}!`);
       setInviteEmail('');
     } else {
-      setInviteMessage('User not found. Try one of the demo emails (priya@example.com, rohan@example.com, sneha@example.com)');
+      setInviteMessage('Could not add member. Share the invite link directly with your friend.');
     }
   };
 
@@ -142,6 +161,25 @@ export default function GroupDetailPage() {
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2.5 flex-shrink-0">
+          <Button
+            onClick={handleShareInvite}
+            variant="outline"
+            size="sm"
+            className="text-xs font-semibold"
+          >
+            {copiedInvite ? (
+              <>
+                <Check className="w-4 h-4 mr-1 text-emerald-600" />
+                Invite Copied!
+              </>
+            ) : (
+              <>
+                <Share2 className="w-4 h-4 mr-1 text-emerald-600" />
+                Share Invite Link
+              </>
+            )}
+          </Button>
+
           <Button
             onClick={() => setIsSettleOpen(true)}
             variant="outline"
@@ -255,14 +293,66 @@ export default function GroupDetailPage() {
       {/* Tab 4: Settings */}
       {activeTab === 'settings' && (
         <div className="max-w-2xl space-y-6">
+          {/* Shareable Group Invite Link */}
+          <div className="p-5 rounded-xl border border-border bg-card space-y-3">
+            <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+              <Share2 className="w-4 h-4 text-emerald-600" />
+              Shareable Group Invite Link
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Send this link to your friends. They can join the group with their email and start adding/splitting expenses right away.
+            </p>
+            <div className="flex items-center gap-2">
+              <Input
+                readOnly
+                value={inviteLink}
+                className="h-9 text-xs bg-muted font-mono select-all"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleShareInvite}
+                className="flex-shrink-0 min-w-[90px]"
+              >
+                {copiedInvite ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 mr-1 text-emerald-500" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5 mr-1" />
+                    Copy
+                  </>
+                )}
+              </Button>
+            </div>
+            <div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const text = `Join my group "${group.name}" on RupeeWise to split expenses: ${inviteLink}`;
+                  window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+                }}
+                className="text-xs"
+              >
+                <Share2 className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
+                Share on WhatsApp
+              </Button>
+            </div>
+          </div>
+
           {/* Invite Member */}
           <div className="p-5 rounded-xl border border-border bg-card space-y-3">
             <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
               <UserPlus className="w-4 h-4 text-emerald-600" />
-              Invite Member by Email
+              Add Member by Email
             </h3>
             <p className="text-xs text-muted-foreground">
-              Add friends or roommates to this group to split bills together.
+              Directly add a friend or roommate if they already have an account.
             </p>
             {inviteMessage && (
               <div className="text-xs p-2 rounded-lg bg-muted text-foreground font-medium">
