@@ -12,6 +12,7 @@ import { SettleModal } from '@/components/settlements/SettleModal';
 import { CreateGroupModal } from '@/components/groups/CreateGroupModal';
 import { AddFriendModal } from '@/components/friends/AddFriendModal';
 import { OnboardingModal } from '@/components/auth/OnboardingModal';
+import { InstallPwaPrompt } from '@/components/layout/InstallPwaPrompt';
 
 function AppLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -62,6 +63,7 @@ function AppLayoutContent({ children }: { children: React.ReactNode }) {
         onClose={() => setIsAddFriendOpen(false)}
       />
       <OnboardingModal isOpen={showOnboarding} />
+      <InstallPwaPrompt />
     </div>
   );
 }
@@ -79,7 +81,16 @@ export default function RootLayout({
           name="description"
           content="Production-ready Splitwise clone for India with smart INR splits, min-cash-flow debt simplification, and Recharts spending analytics."
         />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#059669" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="RupeeWise" />
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+        <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+        <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
       </head>
       <body>
         <AppProvider>

@@ -17,6 +17,7 @@ import {
   Receipt,
   User as UserIcon,
   ArrowRightLeft,
+  Download,
 } from 'lucide-react';
 import { formatINR } from '@/lib/currency';
 
@@ -189,6 +190,17 @@ export function Navbar({ onOpenAddExpense }: NavbarProps) {
                       <ArrowRightLeft className="w-4 h-4 text-muted-foreground" />
                       <span>Switch Account</span>
                     </Link>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsUserMenuOpen(false);
+                        window.dispatchEvent(new CustomEvent('rupeewise_open_install'));
+                      }}
+                      className="w-full flex items-center gap-2.5 p-2 rounded-lg text-xs hover:bg-muted text-foreground transition-colors font-medium text-left"
+                    >
+                      <Download className="w-4 h-4 text-emerald-600" />
+                      <span>Install App on Device</span>
+                    </button>
                   </div>
                 </div>
               </>

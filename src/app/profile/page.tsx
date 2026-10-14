@@ -16,6 +16,7 @@ import {
   ArrowRightLeft,
   Mail,
   User as UserIcon,
+  Download,
 } from 'lucide-react';
 
 export default function ProfilePage() {
@@ -196,6 +197,41 @@ export default function ProfilePage() {
               <p className="text-xs text-rose-500 font-medium">{switchError}</p>
             )}
           </form>
+        </CardContent>
+      </Card>
+
+      {/* App Installation */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Smartphone className="w-4 h-4 text-emerald-600" />
+            <span>Install RupeeWise App</span>
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Install RupeeWise on your phone or desktop for quick 1-tap home screen access and a full-screen native app experience without browser bars.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl border border-border bg-card">
+            <div>
+              <h4 className="text-xs font-bold text-foreground">Mobile & Desktop App (PWA)</h4>
+              <p className="text-[11px] text-muted-foreground">
+                Works seamlessly on Android, iPhone/iPad (Safari), Windows, and Mac.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('rupeewise_open_install'));
+              }}
+              className="text-xs gap-1.5 shrink-0"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Install to Device</span>
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
