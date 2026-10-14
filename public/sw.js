@@ -1,7 +1,6 @@
 // RupeeWise Service Worker
-const CACHE_NAME = 'rupeewise-v1';
+const CACHE_NAME = 'rupeewise-v2';
 const STATIC_ASSETS = [
-  '/',
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
@@ -10,10 +9,14 @@ const STATIC_ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS).catch((err) => {
-        console.warn('Pre-caching warning:', err);
-      });
+    caches.open(CACHE_NAME).then(async (cache) => {
+      for (const asset of STATIC_ASSETS) {
+        try {
+          await cache.add(asset);
+        } catch (e) {
+          console.warn('Could not cache asset:', asset, e);
+        }
+      }
     })
   );
   self.skipWaiting();
@@ -36,12 +39,11 @@ self.addEventListener('activate', (event) => {
 
 // Network-first strategy to keep real-time ledger and Supabase data completely fresh
 self.addEventListener('fetch', (event) => {
-  // Only handle GET requests
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
 
-  // Skip supabase api / realtime websocket requests from worker cache
+  // Skip Supabase API and Realtime websocket requests
   if (url.hostname.includes('supabase.co') || url.pathname.includes('/rest/v1')) {
     return;
   }
@@ -49,7 +51,6 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
-        // Cache static files (images, icons, fonts)
         if (
           networkResponse.ok &&
           (url.pathname.startsWith('/icons/') ||
@@ -65,9 +66,7 @@ self.addEventListener('fetch', (event) => {
         return networkResponse;
       })
       .catch(() => {
-        // Offline fallback from cache if available
         return caches.match(event.request);
       })
   );
 });
-
