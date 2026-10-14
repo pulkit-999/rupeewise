@@ -10,7 +10,6 @@ import {
   Plus,
   Moon,
   Sun,
-  RotateCcw,
   Users,
   ChevronDown,
   Check,
@@ -26,7 +25,7 @@ interface NavbarProps {
 }
 
 export function Navbar({ onOpenAddExpense }: NavbarProps) {
-  const { currentUser, clearAllData, getUserNetBalance } = useAppStore();
+  const { currentUser, getUserNetBalance } = useAppStore();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
@@ -84,21 +83,6 @@ export function Navbar({ onOpenAddExpense }: NavbarProps) {
             className="text-muted-foreground"
           >
             {isDarkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5" />}
-          </Button>
-
-          {/* Clear / Start Fresh Data */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              if (confirm('Clear all local and cloud data to start with a completely clean slate?')) {
-                clearAllData();
-              }
-            }}
-            title="Clear all data & start fresh"
-            className="text-muted-foreground hidden md:inline-flex"
-          >
-            <RotateCcw className="w-4 h-4" />
           </Button>
 
           {/* User Account Menu Dropdown */}

@@ -30,6 +30,8 @@ import {
   Share2,
   Copy,
   Check,
+  Trash2,
+  UserMinus,
 } from 'lucide-react';
 
 export default function GroupDetailPage() {
@@ -44,7 +46,9 @@ export default function GroupDetailPage() {
     currentUser,
     users,
     archiveGroup,
+    deleteGroup,
     leaveGroup,
+    removeMemberFromGroup,
     addMemberToGroup,
     transferOwnership,
   } = useAppStore();
@@ -398,18 +402,33 @@ export default function GroupDetailPage() {
                     </div>
 
                     {isOwner && !isGroupOwner && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          if (confirm(`Transfer group ownership to ${u?.full_name}?`)) {
-                            transferOwnership(group.id, m.user_id);
-                          }
-                        }}
-                        className="text-[11px] text-muted-foreground hover:text-foreground"
-                      >
-                        Make Owner
-                      </Button>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            if (confirm(`Transfer group ownership to ${u?.full_name}?`)) {
+                              transferOwnership(group.id, m.user_id);
+                            }
+                          }}
+                          className="text-[11px] text-muted-foreground hover:text-foreground h-7 px-2"
+                        >
+                          Make Owner
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            if (confirm(`Remove ${u?.full_name || 'this member'} from "${group.name}"?`)) {
+                              removeMemberFromGroup(group.id, m.user_id);
+                            }
+                          }}
+                          className="text-[11px] text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 h-7 px-2 font-medium"
+                        >
+                          <UserMinus className="w-3.5 h-3.5 mr-1" />
+                          Remove
+                        </Button>
+                      </div>
                     )}
                   </div>
                 );
@@ -437,6 +456,36 @@ export default function GroupDetailPage() {
                 {group.is_archived ? 'Unarchive' : 'Archive'}
               </Button>
             </div>
+
+            {/* Delete Group permanently */}
+            {isOwner && (
+              <div className="flex items-center justify-between pt-3 border-t border-rose-200/50">
+                <div>
+                  <div className="text-xs font-semibold text-rose-600">Delete Group Permanently</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Completely deletes this group, all its expenses, and settlements from RupeeWise and Supabase.
+                  </div>
+                </div>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => {
+                    if (
+                      confirm(
+                        `Are you sure you want to permanently delete "${group.name}"? All expenses, splits, and settlements for this group will be deleted. This cannot be undone.`
+                      )
+                    ) {
+                      deleteGroup(group.id);
+                      router.push('/groups');
+                    }
+                  }}
+                  className="text-xs"
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-1" />
+                  Delete Group
+                </Button>
+              </div>
+            )}
 
             <div className="flex items-center justify-between pt-3 border-t border-rose-200/50">
               <div>

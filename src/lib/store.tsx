@@ -126,7 +126,9 @@ interface AppContextType {
   createGroup: (group: Omit<Group, 'id' | 'created_at' | 'created_by' | 'is_archived'>, memberUserIds: string[]) => Group;
   updateGroup: (id: string, updates: Partial<Group>) => void;
   archiveGroup: (id: string) => void;
+  deleteGroup: (groupId: string) => void;
   leaveGroup: (groupId: string, userId: string) => void;
+  removeMemberFromGroup: (groupId: string, userId: string) => void;
   addMemberToGroup: (groupId: string, email: string) => boolean;
   transferOwnership: (groupId: string, newOwnerId: string) => void;
 
@@ -671,7 +673,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
   };
 
-  const leaveGroup = (groupId: string, userId: string) => {
+  const deleteGroup = (groupId: string) => {
+    setGroups((prev) => prev.filter((g) => g.id !== groupId));
+    setExpenses((prev) => prev.filter((e) => e.group_id !== groupId));
+    setSettlements((prev) => prev.filter((s) => s.group_id !== groupId));
+    setActivities((prev) => prev.filter((a) => a.group_id !== groupId));
+
+    (async () => {
+      try {
+        const supabase = createClient();
+        const groupExpIds = expenses.filter((e) => e.group_id === groupId).map((e) => e.id);
+        if (groupExpIds.length > 0) {
+          await supabase.from('expense_splits').delete().in('expense_id', groupExpIds);
+          await supabase.from('expense_payers').delete().in('expense_id', groupExpIds);
+          await supabase.from('expense_comments').delete().in('expense_id', groupExpIds);
+          await supabase.from('expenses').delete().in('id', groupExpIds);
+        }
+        await supabase.from('settlements').delete().eq('group_id', groupId);
+        await supabase.from('activity_logs').delete().eq('group_id', groupId);
+        await supabase.from('group_members').delete().eq('group_id', groupId);
+        const { error } = await supabase.from('groups').delete().eq('id', groupId);
+        if (error) console.error('Failed to delete group in Supabase:', error);
+      } catch (e) {
+        console.error('Error deleting group from Supabase:', e);
+      }
+    })();
+  };
+
+  const removeMemberFromGroup = (groupId: string, userId: string) => {
     setGroups((prev) =>
       prev.map((g) => {
         if (g.id !== groupId) return g;
@@ -685,8 +714,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const supabase = createClient();
         await supabase.from('group_members').delete().match({ group_id: groupId, user_id: userId });
-      } catch {}
+      } catch (e) {
+        console.error('Error removing member from Supabase:', e);
+      }
     })();
+  };
+
+  const leaveGroup = (groupId: string, userId: string) => {
+    removeMemberFromGroup(groupId, userId);
   };
 
   const addMemberToGroup = (groupId: string, email: string): boolean => {
@@ -1411,7 +1446,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         createGroup,
         updateGroup,
         archiveGroup,
+        deleteGroup,
         leaveGroup,
+        removeMemberFromGroup,
         addMemberToGroup,
         transferOwnership,
         addExpense,

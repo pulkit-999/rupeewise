@@ -18,10 +18,11 @@ import {
   Folder,
   ArrowRight,
   Archive,
+  Trash2,
 } from 'lucide-react';
 
 export default function GroupsPage() {
-  const { groups, expenses, currentUser, getGroupBalances } = useAppStore();
+  const { groups, expenses, currentUser, getGroupBalances, deleteGroup } = useAppStore();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [filterType, setFilterType] = useState<string>('all');
   const [showArchived, setShowArchived] = useState(false);
@@ -144,7 +145,29 @@ export default function GroupsPage() {
                       </div>
                     </div>
 
-                    {group.is_archived && <Badge variant="outline">Archived</Badge>}
+                    <div className="flex items-center gap-1.5">
+                      {group.is_archived && <Badge variant="outline">Archived</Badge>}
+                      {group.created_by === currentUser.id && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (
+                              confirm(
+                                `Are you sure you want to permanently delete "${group.name}"? This cannot be undone.`
+                              )
+                            ) {
+                              deleteGroup(group.id);
+                            }
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 text-muted-foreground hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all"
+                          title="Delete Group"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {group.description && (
