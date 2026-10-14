@@ -304,6 +304,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem('rupeewise_app_state_v1');
 
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          currentUserId: currentUser.id,
+          users: [currentUser],
+          groups: [],
+          expenses: [],
+          settlements: [],
+          friendships: [],
+          activities: [],
+        })
+      );
+    } catch {}
+
     // Also remove from Supabase
     (async () => {
       try {
@@ -315,7 +330,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           supabase.from('friendships').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
           supabase.from('activity_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
         ]);
-      } catch {}
+
+        if (currentUser.id) {
+          const { error: uErr } = await supabase.from('users').delete().neq('id', currentUser.id);
+          if (uErr) console.error('Failed to clear other users from Supabase:', uErr);
+        }
+      } catch (e) {
+        console.error('Error clearing data in Supabase:', e);
+      }
     })();
   };
 
@@ -1051,12 +1073,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const removeFriend = (friendshipId: string) => {
+    const friendship = friendships.find((f) => f.id === friendshipId);
     setFriendships((prev) => prev.filter((f) => f.id !== friendshipId));
+
+    if (friendship) {
+      const friendId = friendship.friend_id;
+      const isInGroup = groups.some((g) => (g.members || []).some((m) => m.user_id === friendId));
+      const isInExpense = expenses.some(
+        (e) => (e.payers || []).some((p) => p.user_id === friendId) || (e.splits || []).some((s) => s.user_id === friendId)
+      );
+      if (!isInGroup && !isInExpense && friendId !== currentUser.id) {
+        setUsers((prev) => prev.filter((u) => u.id !== friendId));
+      }
+    }
+
     (async () => {
       try {
         const supabase = createClient();
         const { error } = await supabase.from('friendships').delete().eq('id', friendshipId);
         if (error) console.error('Failed to remove friendship in Supabase:', error);
+
+        if (friendship) {
+          const friendId = friendship.friend_id;
+          const isInGroup = groups.some((g) => (g.members || []).some((m) => m.user_id === friendId));
+          const isInExpense = expenses.some(
+            (e) => (e.payers || []).some((p) => p.user_id === friendId) || (e.splits || []).some((s) => s.user_id === friendId)
+          );
+          if (!isInGroup && !isInExpense && friendId !== currentUser.id) {
+            await supabase.from('users').delete().eq('id', friendId);
+          }
+        }
       } catch (e) {
         console.error('Error removing friend in Supabase:', e);
       }
