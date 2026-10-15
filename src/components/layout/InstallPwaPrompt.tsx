@@ -63,7 +63,7 @@ export function InstallPwaPrompt() {
     // Register Service Worker
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker
-        .register('/sw.js')
+        .register('/sw.js', { updateViaCache: 'none' })
         .then((reg) => {
           reg.update().catch(() => {});
         })

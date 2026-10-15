@@ -13,6 +13,7 @@ import { CreateGroupModal } from '@/components/groups/CreateGroupModal';
 import { AddFriendModal } from '@/components/friends/AddFriendModal';
 import { OnboardingModal } from '@/components/auth/OnboardingModal';
 import { InstallPwaPrompt } from '@/components/layout/InstallPwaPrompt';
+import { AppUpdatePrompt } from '@/components/layout/AppUpdatePrompt';
 
 function AppLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -64,6 +65,7 @@ function AppLayoutContent({ children }: { children: React.ReactNode }) {
       />
       <OnboardingModal isOpen={showOnboarding} />
       <InstallPwaPrompt />
+      <AppUpdatePrompt />
     </div>
   );
 }
@@ -91,6 +93,23 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
         <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var saved = localStorage.getItem('rupeewise_theme');
+                  var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                  if (saved === 'dark' || (!saved && prefersDark)) {
+                    document.documentElement.classList.add('dark');
+                  } else {
+                    document.documentElement.classList.remove('dark');
+                  }
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
       </head>
       <body>
         <AppProvider>

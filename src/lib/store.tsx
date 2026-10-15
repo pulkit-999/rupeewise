@@ -53,8 +53,25 @@ export const DEFAULT_USER: User = {
   created_at: '2024-01-01T00:00:00.000Z',
 };
 
-const USER_STORAGE_KEY = 'rupeewise_device_user_v4';
-const STORAGE_KEY = 'rupeewise_app_state_v4';
+const USER_STORAGE_KEY = 'rupeewise_device_user';
+const STORAGE_KEY = 'rupeewise_app_state';
+
+const LEGACY_USER_KEYS = [
+  'rupeewise_device_user',
+  'rupeewise_device_user_v4',
+  'rupeewise_device_user_v3',
+  'rupeewise_device_user_v2',
+  'rupeewise_device_user_v1',
+  'rupeewise_current_user',
+];
+
+const LEGACY_STATE_KEYS = [
+  'rupeewise_app_state',
+  'rupeewise_app_state_v4',
+  'rupeewise_app_state_v3',
+  'rupeewise_app_state_v2',
+  'rupeewise_app_state_v1',
+];
 
 async function ensureUserInSupabase(supabase: any, user: User): Promise<string> {
   const validId = ensureValidUUID(user.id);
@@ -85,11 +102,18 @@ async function ensureUserInSupabase(supabase: any, user: User): Promise<string> 
 function getDeviceUser(): User & { isOnboarded?: boolean } {
   if (typeof window === 'undefined') return { ...DEFAULT_USER, isOnboarded: false };
   try {
-    const saved = localStorage.getItem(USER_STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed && parsed.id && parsed.email && !parsed.email.includes('rupeewise.app') && parsed.isOnboarded) {
-        return { ...parsed, isOnboarded: true };
+    // Check all legacy keys so users are NEVER logged out or forced to re-onboard on rollouts
+    for (const key of LEGACY_USER_KEYS) {
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.id && parsed.email && !parsed.email.includes('rupeewise.app') && parsed.isOnboarded) {
+            // Permanently secure in stable storage key
+            localStorage.setItem(USER_STORAGE_KEY, JSON.stringify({ ...parsed, isOnboarded: true }));
+            return { ...parsed, isOnboarded: true };
+          }
+        } catch {}
       }
     }
   } catch {}
@@ -419,7 +443,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsOnboarded(onboarded);
 
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      let stored: string | null = null;
+      for (const k of LEGACY_STATE_KEYS) {
+        const item = localStorage.getItem(k);
+        if (item) {
+          stored = item;
+          break;
+        }
+      }
       if (stored && onboarded) {
         const parsed = JSON.parse(stored);
         if (parsed.users) setUsers(parsed.users);

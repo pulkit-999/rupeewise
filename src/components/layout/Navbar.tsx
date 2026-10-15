@@ -17,6 +17,8 @@ import {
   User as UserIcon,
   ArrowRightLeft,
   Download,
+  Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 import { formatINR } from '@/lib/currency';
 
@@ -28,15 +30,51 @@ export function Navbar({ onOpenAddExpense }: NavbarProps) {
   const { currentUser, getUserNetBalance } = useAppStore();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+
+  React.useEffect(() => {
+    // Restore dark mode state from document / localStorage
+    const isDark =
+      document.documentElement.classList.contains('dark') ||
+      localStorage.getItem('rupeewise_theme') === 'dark';
+    setIsDarkMode(isDark);
+
+    const handleThemeChange = () => {
+      setIsDarkMode(document.documentElement.classList.contains('dark'));
+    };
+
+    const handleUpdateStatus = (e: any) => {
+      if (e?.detail?.available) {
+        setUpdateAvailable(true);
+      }
+    };
+
+    window.addEventListener('rupeewise_theme_change', handleThemeChange);
+    window.addEventListener('rupeewise_update_status', handleUpdateStatus);
+    window.addEventListener('storage', handleThemeChange);
+
+    return () => {
+      window.removeEventListener('rupeewise_theme_change', handleThemeChange);
+      window.removeEventListener('rupeewise_update_status', handleUpdateStatus);
+      window.removeEventListener('storage', handleThemeChange);
+    };
+  }, []);
 
   const toggleDarkMode = () => {
-    const isDark = !isDarkMode;
-    setIsDarkMode(isDark);
-    if (isDark) {
+    const nextDark = !isDarkMode;
+    setIsDarkMode(nextDark);
+    if (nextDark) {
       document.documentElement.classList.add('dark');
+      try {
+        localStorage.setItem('rupeewise_theme', 'dark');
+      } catch {}
     } else {
       document.documentElement.classList.remove('dark');
+      try {
+        localStorage.setItem('rupeewise_theme', 'light');
+      } catch {}
     }
+    window.dispatchEvent(new Event('rupeewise_theme_change'));
   };
 
   const netBalance = getUserNetBalance(currentUser.id);
@@ -73,6 +111,20 @@ export function Navbar({ onOpenAddExpense }: NavbarProps) {
             <Plus className="w-4 h-4" />
             <span>Add Expense</span>
           </Button>
+
+          {/* Update Available Notification Pill */}
+          {updateAvailable && (
+            <button
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('rupeewise_check_update'));
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30 transition-all animate-pulse"
+              title="A new version of RupeeWise is available! Tap to update."
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+              <span className="hidden sm:inline">Update Ready</span>
+            </button>
+          )}
 
           {/* Dark Mode Toggle */}
           <Button
@@ -184,6 +236,22 @@ export function Navbar({ onOpenAddExpense }: NavbarProps) {
                     >
                       <Download className="w-4 h-4 text-emerald-600" />
                       <span>Install App on Device</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsUserMenuOpen(false);
+                        window.dispatchEvent(new CustomEvent('rupeewise_check_update'));
+                      }}
+                      className="w-full flex items-center justify-between p-2 rounded-lg text-xs hover:bg-muted text-foreground transition-colors font-medium text-left"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <RefreshCw className="w-4 h-4 text-emerald-600" />
+                        <span>Check for Updates</span>
+                      </div>
+                      {updateAvailable && (
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      )}
                     </button>
                   </div>
                 </div>
