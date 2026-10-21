@@ -11,7 +11,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import {
-  AreaChart,
+  ComposedChart,
   Area,
   Line,
   XAxis,
@@ -46,6 +46,91 @@ interface ForecastingAnalysisProps {
   expenses: Expense[];
   viewScope: 'my_share' | 'total_expense';
   userId?: string;
+}
+
+interface TrajectoryTooltipProps {
+  active?: boolean;
+  payload?: any[];
+  label?: string;
+  currentDay: number;
+  showNaive: boolean;
+}
+
+function TrajectoryTooltip({
+  active,
+  payload,
+  currentDay,
+  showNaive,
+}: TrajectoryTooltipProps) {
+  if (!active || !payload || !payload.length) return null;
+
+  const dataPoint = payload[0]?.payload;
+  if (!dataPoint) return null;
+
+  const day = dataPoint.day;
+  const isPastOrToday = day <= currentDay;
+
+  return (
+    <div className="rounded-xl border border-border bg-card/95 backdrop-blur-md p-3.5 shadow-xl text-xs space-y-2.5 min-w-[220px] pointer-events-none select-none">
+      <div className="flex items-center justify-between border-b border-border/60 pb-1.5 font-bold text-foreground">
+        <span>{dataPoint.dateLabel} (Day {day})</span>
+        <span
+          className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+            isPastOrToday
+              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+              : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+          }`}
+        >
+          {isPastOrToday ? (day === currentDay ? 'Today' : 'Actual Incurred') : 'Projected Forecast'}
+        </span>
+      </div>
+
+      <div className="space-y-1.5">
+        {isPastOrToday && dataPoint.actualSpend !== null && (
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block shrink-0" />
+              <span>Actual Spend:</span>
+            </span>
+            <span className="font-extrabold text-foreground">
+              {formatINR(dataPoint.actualSpend)}
+            </span>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-3">
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block shrink-0" />
+            <span>{isPastOrToday ? 'Run-rate to Date:' : 'Smart Forecast:'}</span>
+          </span>
+          <span className="font-extrabold text-emerald-600 dark:text-emerald-400">
+            {formatINR(dataPoint.projectedSmart)}
+          </span>
+        </div>
+
+        {!isPastOrToday && (
+          <div className="text-[10px] text-muted-foreground pt-1 border-t border-border/40 flex items-center justify-between">
+            <span>Expected Range:</span>
+            <span className="font-medium text-foreground">
+              {formatINR(dataPoint.projectedLow)} – {formatINR(dataPoint.projectedHigh)}
+            </span>
+          </div>
+        )}
+
+        {showNaive && !isPastOrToday && (
+          <div className="flex items-center justify-between gap-3 pt-1 border-t border-border/40 text-[11px]">
+            <span className="flex items-center gap-1.5 text-rose-500">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block shrink-0" />
+              <span>Naive Run-rate:</span>
+            </span>
+            <span className="font-bold text-rose-500 line-through">
+              {formatINR(dataPoint.projectedNaive)}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function ForecastingAnalysis({
@@ -328,7 +413,7 @@ export function ForecastingAnalysis({
         </CardHeader>
         <CardContent className="h-80 pt-4">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart
+            <ComposedChart
               data={forecast.trajectory}
               margin={{ top: 10, right: 15, left: 15, bottom: 20 }}
             >
@@ -352,24 +437,13 @@ export function ForecastingAnalysis({
                 domain={[0, 'auto']}
               />
               <Tooltip
-                formatter={(val: any, name: string) => {
-                  if (val === null || val === undefined) return ['-', name];
-                  const labels: Record<string, string> = {
-                    actualSpend: 'Actual Spend to Date',
-                    projectedSmart: 'Smart Forecast Trajectory',
-                    projectedNaive: 'Naive Trajectory (Unadjusted)',
-                    projectedLow: 'Optimistic Pace (-15%)',
-                    projectedHigh: 'Conservative Pace (+20%)',
-                  };
-                  return [formatINR(val), labels[name] || name];
-                }}
-                labelFormatter={(label) => `Date: ${label}`}
-                contentStyle={{
-                  backgroundColor: 'hsl(var(--card))',
-                  borderColor: 'hsl(var(--border))',
-                  borderRadius: '0.5rem',
-                  fontSize: '12px',
-                }}
+                content={
+                  <TrajectoryTooltip
+                    currentDay={forecast.currentDay}
+                    showNaive={showNaiveComparison}
+                  />
+                }
+                cursor={{ stroke: '#10b981', strokeWidth: 1.5, strokeDasharray: '3 3' }}
               />
               <Legend
                 verticalAlign="bottom"
@@ -394,6 +468,7 @@ export function ForecastingAnalysis({
                 strokeWidth={2.5}
                 strokeDasharray="4 4"
                 dot={false}
+                activeDot={{ r: 5, fill: '#10b981', stroke: '#ffffff', strokeWidth: 2 }}
                 name="Smart Projected Trajectory"
               />
 
@@ -404,7 +479,7 @@ export function ForecastingAnalysis({
                 stroke="#059669"
                 strokeWidth={3}
                 dot={{ r: 3, fill: '#059669' }}
-                activeDot={{ r: 6 }}
+                activeDot={{ r: 6, fill: '#059669', stroke: '#ffffff', strokeWidth: 2 }}
                 name="Actual Spend to Date"
               />
 
@@ -417,6 +492,7 @@ export function ForecastingAnalysis({
                   strokeWidth={2}
                   strokeDasharray="2 2"
                   dot={false}
+                  activeDot={{ r: 5, fill: '#f43f5e', stroke: '#ffffff', strokeWidth: 2 }}
                   name="Naive Extrapolation (Inflated)"
                 />
               )}
@@ -448,7 +524,7 @@ export function ForecastingAnalysis({
                   }}
                 />
               )}
-            </AreaChart>
+            </ComposedChart>
           </ResponsiveContainer>
         </CardContent>
       </Card>
