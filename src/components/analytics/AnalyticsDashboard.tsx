@@ -43,12 +43,14 @@ import {
   parseISO,
   format,
 } from 'date-fns';
+import { ForecastingAnalysis } from './ForecastingAnalysis';
 
 type TimeRange = 'this_month' | 'last_month' | 'last_3m' | 'last_6m' | 'last_12m' | 'all';
 
 export function AnalyticsDashboard() {
   const { expenses, groups, categories, users, currentUser } = useAppStore();
 
+  const [activeTab, setActiveTab] = useState<'overview' | 'forecasting'>('overview');
   const [timeRange, setTimeRange] = useState<TimeRange>('all');
   const [selectedGroupId, setSelectedGroupId] = useState<string>('all');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
@@ -325,7 +327,69 @@ export function AnalyticsDashboard() {
         </div>
       </div>
 
-      {/* Filter Bar */}
+      {/* Analytics Subnavigation Tabs */}
+      <div className="flex border-b border-border/80 gap-6 text-xs font-semibold">
+        <button
+          type="button"
+          onClick={() => setActiveTab('overview')}
+          className={`flex items-center gap-2 pb-2.5 border-b-2 transition-all ${
+            activeTab === 'overview'
+              ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400 font-bold'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <PieIcon className="w-4 h-4" />
+          <span>Category & Historical Breakdown</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('forecasting')}
+          className={`flex items-center gap-2 pb-2.5 border-b-2 transition-all ${
+            activeTab === 'forecasting'
+              ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400 font-bold'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-emerald-500" />
+          <span>Spending Forecast & Run-rate</span>
+          <span className="text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-semibold px-2 py-0.5 rounded-full">
+            Smart Benchmark
+          </span>
+        </button>
+      </div>
+
+      {activeTab === 'forecasting' ? (
+        <ForecastingAnalysis
+          expenses={expenses}
+          viewScope={viewScope}
+          userId={currentUser.id}
+        />
+      ) : (
+        <>
+          {/* Quick Forecast Teaser Banner */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl border border-emerald-500/20 bg-gradient-to-r from-emerald-500/10 via-card to-teal-500/5 text-xs">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="font-bold text-foreground">Want to predict your end-of-month spend? </span>
+                <span className="text-muted-foreground">
+                  Our Smart Forecast isolates one-time spikes (like Rent) from your daily burn rate.
+                </span>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setActiveTab('forecasting')}
+              className="h-8 text-xs font-semibold shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white border-transparent"
+            >
+              Open Forecast Engine →
+            </Button>
+          </div>
+
+          {/* Filter Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-xl bg-card border border-border shadow-2xs">
         {/* Timeframe */}
         <div>
@@ -732,6 +796,8 @@ export function AnalyticsDashboard() {
           )}
         </CardContent>
       </Card>
+        </>
+      )}
     </div>
   );
 }
