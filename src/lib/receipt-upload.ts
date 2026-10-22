@@ -100,8 +100,12 @@ export interface UploadReceiptResult {
  * 3. If bucket is unavailable, RLS blocks, or offline, gracefully falls back to compressed Base64 data URI.
  */
 export async function uploadReceiptFile(file: File): Promise<UploadReceiptResult> {
-  // Validate file type
-  if (!file.type.startsWith('image/') && !file.type.includes('pdf')) {
+  // Mobile-friendly validation: some mobile browsers/camera uploads report empty file.type
+  const isImageOrPdf =
+    (file.type && (file.type.startsWith('image/') || file.type.includes('pdf'))) ||
+    /\.(jpe?g|png|webp|gif|bmp|heic|heif|pdf)$/i.test(file.name);
+
+  if (!isImageOrPdf) {
     throw new Error('Please select an image file (PNG, JPG, JPEG, WEBP).');
   }
 

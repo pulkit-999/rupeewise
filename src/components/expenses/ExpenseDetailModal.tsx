@@ -34,27 +34,50 @@ interface ExpenseDetailModalProps {
 }
 
 export function ExpenseDetailModal({ expense, isOpen, onClose, onEdit }: ExpenseDetailModalProps) {
-  const { currentUser, deleteExpense, updateExpense, addComment, users } = useAppStore();
+  const { currentUser, deleteExpense, updateExpense, addComment, users, expenses } = useAppStore();
   const [newComment, setNewComment] = useState('');
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [optimisticReceiptUrl, setOptimisticReceiptUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  if (!expense) return null;
+  // Keep expense synced with latest store state
+  const liveExpense = (expense && expenses.find((e) => e.id === expense.id)) || expense;
+
+  React.useEffect(() => {
+    setOptimisticReceiptUrl(null);
+    setUploadError(null);
+    setSuccessMessage(null);
+  }, [expense?.id]);
+
+  if (!expense || !liveExpense) return null;
+
+  const activeReceiptUrl =
+    optimisticReceiptUrl !== null ? optimisticReceiptUrl : (liveExpense.receipt_url || '');
 
   const handleAttachReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setUploadError(null);
+    setSuccessMessage(null);
     setIsUploading(true);
+
+    // Instant local preview so on mobile the thumbnail displays immediately without waiting
+    const tempUrl = URL.createObjectURL(file);
+    setOptimisticReceiptUrl(tempUrl);
 
     try {
       const result = await uploadReceiptFile(file);
-      updateExpense(expense.id, { receipt_url: result.url });
+      setOptimisticReceiptUrl(result.url);
+      updateExpense(liveExpense.id, { receipt_url: result.url });
+      setSuccessMessage('Receipt attached successfully! ✓');
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       console.error('Error attaching receipt:', err);
+      setOptimisticReceiptUrl(null);
       setUploadError(err?.message || 'Failed to attach receipt');
     } finally {
       setIsUploading(false);
@@ -66,7 +89,10 @@ export function ExpenseDetailModal({ expense, isOpen, onClose, onEdit }: Expense
 
   const handleRemoveReceipt = () => {
     if (confirm('Are you sure you want to remove the receipt attachment?')) {
-      updateExpense(expense.id, { receipt_url: '' });
+      setOptimisticReceiptUrl('');
+      updateExpense(liveExpense.id, { receipt_url: '' });
+      setSuccessMessage('Receipt removed.');
+      setTimeout(() => setSuccessMessage(null), 2500);
     }
   };
 
@@ -187,12 +213,18 @@ export function ExpenseDetailModal({ expense, isOpen, onClose, onEdit }: Expense
           className="hidden"
         />
 
-        {expense.receipt_url ? (
+        {activeReceiptUrl ? (
           <div className="p-3.5 rounded-xl border border-border bg-muted/20 space-y-2.5">
             <div className="text-xs font-semibold text-foreground flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+              <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold">
                 <Receipt className="w-4 h-4" />
                 <span>Receipt Attached</span>
+                {isUploading && (
+                  <span className="text-[10px] text-muted-foreground font-normal flex items-center gap-1 ml-1">
+                    <Loader2 className="w-3 h-3 animate-spin text-emerald-600" />
+                    Syncing...
+                  </span>
+                )}
               </span>
               <div className="flex items-center gap-2">
                 <button
@@ -204,8 +236,8 @@ export function ExpenseDetailModal({ expense, isOpen, onClose, onEdit }: Expense
                   <span>Expand</span>
                 </button>
                 <a
-                  href={expense.receipt_url}
-                  download={`receipt-${expense.description.replace(/\s+/g, '-').toLowerCase()}.jpg`}
+                  href={activeReceiptUrl}
+                  download={`receipt-${liveExpense.description.replace(/\s+/g, '-').toLowerCase()}.jpg`}
                   className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 font-medium"
                   title="Download receipt image"
                 >
@@ -230,8 +262,8 @@ export function ExpenseDetailModal({ expense, isOpen, onClose, onEdit }: Expense
               title="Click to view full screen"
             >
               <img
-                src={expense.receipt_url}
-                alt={`Receipt for ${expense.description}`}
+                src={activeReceiptUrl}
+                alt={`Receipt for ${liveExpense.description}`}
                 className="w-full max-h-52 object-contain rounded-lg group-hover:scale-[1.01] transition-transform"
               />
               <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
@@ -272,6 +304,13 @@ export function ExpenseDetailModal({ expense, isOpen, onClose, onEdit }: Expense
                 </>
               )}
             </Button>
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-1.5 animate-in fade-in">
+            <span className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold">✓</span>
+            <span>{successMessage}</span>
           </div>
         )}
 
@@ -341,20 +380,20 @@ export function ExpenseDetailModal({ expense, isOpen, onClose, onEdit }: Expense
       </div>
 
       {/* Lightbox Modal for Full View */}
-      {isLightboxOpen && expense.receipt_url && (
+      {isLightboxOpen && activeReceiptUrl && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
           <div className="relative max-w-3xl w-full bg-card rounded-2xl p-4 border border-border shadow-2xl flex flex-col items-center">
             <div className="w-full flex items-center justify-between pb-3 border-b border-border">
               <div className="flex items-center gap-2">
                 <Receipt className="w-4 h-4 text-emerald-600" />
                 <h3 className="font-bold text-sm text-foreground truncate max-w-sm">
-                  {expense.description} - Receipt
+                  {liveExpense.description} - Receipt
                 </h3>
               </div>
               <div className="flex items-center gap-2">
                 <a
-                  href={expense.receipt_url}
-                  download={`receipt-${expense.description.replace(/\s+/g, '-').toLowerCase()}.jpg`}
+                  href={activeReceiptUrl}
+                  download={`receipt-${liveExpense.description.replace(/\s+/g, '-').toLowerCase()}.jpg`}
                   className="px-2.5 py-1 text-xs border border-border rounded-lg hover:bg-muted text-foreground flex items-center gap-1 font-medium transition-colors"
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -372,14 +411,14 @@ export function ExpenseDetailModal({ expense, isOpen, onClose, onEdit }: Expense
 
             <div className="py-4 w-full flex items-center justify-center max-h-[72vh] overflow-auto">
               <img
-                src={expense.receipt_url}
-                alt={`Full Receipt for ${expense.description}`}
+                src={activeReceiptUrl}
+                alt={`Full Receipt for ${liveExpense.description}`}
                 className="max-h-[68vh] w-auto max-w-full object-contain rounded-lg shadow-lg"
               />
             </div>
 
             <div className="w-full flex items-center justify-between pt-3 border-t border-border text-xs text-muted-foreground">
-              <span>Amount: <strong className="text-foreground">{formatINR(expense.amount)}</strong></span>
+              <span>Amount: <strong className="text-foreground">{formatINR(liveExpense.amount)}</strong></span>
               <Button
                 type="button"
                 variant="outline"
