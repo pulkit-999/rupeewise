@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useAppStore, generateUUID } from '@/lib/store';
 import { SplitType, User, Expense } from '@/types/database';
 import { formatINR, toRupees, toPaise } from '@/lib/currency';
+import { uploadReceiptFile } from '@/lib/receipt-upload';
 import {
   calculateEqualSplit,
   validateExactSplit,
@@ -26,6 +27,10 @@ import {
   Percent,
   Split,
   FileText,
+  Loader2,
+  Eye,
+  X,
+  Camera,
 } from 'lucide-react';
 
 interface AddExpenseModalProps {
@@ -45,6 +50,31 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId, expenseToEdit
   const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   const [receiptUrl, setReceiptUrl] = useState('');
+  const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleReceiptFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadError(null);
+    setIsUploadingReceipt(true);
+
+    try {
+      const result = await uploadReceiptFile(file);
+      setReceiptUrl(result.url);
+    } catch (err: any) {
+      console.error('Receipt upload error:', err);
+      setUploadError(err?.message || 'Failed to upload receipt');
+    } finally {
+      setIsUploadingReceipt(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
 
   // Payer state
   const [isMultiPayer, setIsMultiPayer] = useState(false);
@@ -677,29 +707,84 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId, expenseToEdit
 
           <div>
             <label className="text-xs font-semibold text-foreground mb-1 block">Receipt Attachment</label>
-            <div className="flex gap-2">
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/*"
+              onChange={handleReceiptFileChange}
+              className="hidden"
+            />
+            {receiptUrl ? (
+              <div className="flex items-center gap-2 p-1.5 rounded-lg border border-border bg-card">
+                <div
+                  className="relative w-10 h-10 rounded-md overflow-hidden bg-muted cursor-pointer shrink-0 border border-border group"
+                  onClick={() => setPreviewModalOpen(true)}
+                  title="Click to preview receipt"
+                >
+                  <img
+                    src={receiptUrl}
+                    alt="Receipt preview"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                  />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <Eye className="w-3.5 h-3.5 text-white" />
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0 pr-1">
+                  <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 truncate">
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>Receipt Attached</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewModalOpen(true)}
+                    className="text-[11px] text-muted-foreground hover:underline truncate block text-left"
+                  >
+                    Click to view full preview
+                  </button>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploadingReceipt}
+                    className="px-2 py-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground text-[11px] font-medium transition-colors"
+                  >
+                    Change
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReceiptUrl('')}
+                    className="p-1.5 rounded-md hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 text-xs transition-colors"
+                    title="Remove receipt"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ) : (
               <button
                 type="button"
-                onClick={() => {
-                  setReceiptUrl(
-                    'https://images.unsplash.com/photo-1554415707-9e49667ff0d7?w=400&auto=format&fit=crop&q=80'
-                  );
-                }}
-                className="h-10 flex-1 px-3 rounded-lg border border-dashed border-border hover:bg-muted/40 text-xs text-muted-foreground flex items-center justify-center gap-1.5 transition-colors"
+                disabled={isUploadingReceipt}
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full h-10 px-3 rounded-lg border border-dashed border-border hover:border-emerald-500/50 hover:bg-muted/40 text-xs text-muted-foreground hover:text-foreground flex items-center justify-center gap-2 transition-all disabled:opacity-60"
               >
-                <Upload className="w-3.5 h-3.5" />
-                <span>{receiptUrl ? 'Receipt Attached ✓' : 'Upload Receipt'}</span>
+                {isUploadingReceipt ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                    <span className="text-emerald-600 font-medium">Processing & Compressing Image...</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Upload Receipt or Bill Photo</span>
+                  </>
+                )}
               </button>
-              {receiptUrl && (
-                <button
-                  type="button"
-                  onClick={() => setReceiptUrl('')}
-                  className="h-10 px-2 rounded-lg text-rose-500 text-xs hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
+            )}
+            {uploadError && (
+              <p className="text-[11px] text-rose-500 mt-1 font-medium">{uploadError}</p>
+            )}
           </div>
         </div>
 
@@ -721,13 +806,52 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId, expenseToEdit
           </Button>
           <Button
             type="submit"
-            disabled={!isSplitValid || !isPayerValid || numAmount <= 0}
+            disabled={!isSplitValid || !isPayerValid || numAmount <= 0 || isUploadingReceipt}
             className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[120px]"
           >
             {expenseToEdit ? 'Save Changes' : 'Save Expense'}
           </Button>
         </div>
       </form>
+
+      {/* Receipt Image Preview Modal */}
+      {previewModalOpen && receiptUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="relative max-w-2xl w-full bg-card rounded-2xl p-4 border border-border shadow-2xl flex flex-col items-center">
+            <div className="w-full flex items-center justify-between pb-3 border-b border-border">
+              <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-emerald-600" />
+                Receipt Attachment
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPreviewModalOpen(false)}
+                className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="py-4 w-full flex items-center justify-center max-h-[70vh] overflow-auto">
+              <img
+                src={receiptUrl}
+                alt="Receipt Attachment"
+                className="max-h-[65vh] w-auto max-w-full object-contain rounded-lg shadow-md"
+              />
+            </div>
+            <div className="w-full flex justify-between items-center pt-3 border-t border-border">
+              <span className="text-xs text-muted-foreground">Attached to {description || 'this expense'}</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPreviewModalOpen(false)}
+              >
+                Close Preview
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }
