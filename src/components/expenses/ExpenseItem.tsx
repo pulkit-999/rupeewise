@@ -77,9 +77,16 @@ export function ExpenseItem({ expense, onClick }: ExpenseItemProps) {
         </div>
 
         <div className="min-w-0">
-          <h4 className="text-sm font-semibold text-foreground truncate group-hover:text-emerald-600 transition-colors">
-            {expense.description}
-          </h4>
+          <div className="flex items-center gap-1.5">
+            <h4 className="text-sm font-semibold text-foreground truncate group-hover:text-emerald-600 transition-colors">
+              {expense.description}
+            </h4>
+            {expense.receipt_url && (
+              <span title="Receipt attached" className="shrink-0 text-emerald-600 dark:text-emerald-400">
+                <Receipt className="w-3.5 h-3.5" />
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
             <span>{expense.date ? format(new Date(expense.date), 'dd MMM') : ''}</span>
             <span>•</span>

@@ -11,5 +11,15 @@ describe('Receipt Upload Utility', () => {
     const textFile = new File(['hello world'], 'notes.txt', { type: 'text/plain' });
     await expect(uploadReceiptFile(textFile)).rejects.toThrow('Please select an image file');
   });
+
+  it('rejects non-image files with empty MIME type (common on some mobile pickers)', async () => {
+    const unknownFile = new File(['dummy'], 'archive.zip', { type: '' });
+    await expect(uploadReceiptFile(unknownFile)).rejects.toThrow('Please select an image file');
+  });
+
+  it('rejects executable scripts even with generic MIME type', async () => {
+    const jsFile = new File(['alert(1)'], 'script.js', { type: 'application/octet-stream' });
+    await expect(uploadReceiptFile(jsFile)).rejects.toThrow('Please select an image file');
+  });
 });
 

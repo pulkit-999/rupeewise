@@ -515,7 +515,7 @@ export default function GroupDetailPage() {
 
       {/* Expense Detail Modal */}
       <ExpenseDetailModal
-        expense={selectedExpense}
+        expense={selectedExpense ? expenses.find((e) => e.id === selectedExpense.id) || selectedExpense : null}
         isOpen={!!selectedExpense}
         onClose={() => setSelectedExpense(null)}
         onEdit={(exp) => {

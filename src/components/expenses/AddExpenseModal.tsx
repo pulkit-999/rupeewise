@@ -62,11 +62,16 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId, expenseToEdit
     setUploadError(null);
     setIsUploadingReceipt(true);
 
+    // Instant optimistic preview so on mobile users see the thumbnail immediately
+    const tempUrl = URL.createObjectURL(file);
+    setReceiptUrl(tempUrl);
+
     try {
       const result = await uploadReceiptFile(file);
       setReceiptUrl(result.url);
     } catch (err: any) {
       console.error('Receipt upload error:', err);
+      setReceiptUrl('');
       setUploadError(err?.message || 'Failed to upload receipt');
     } finally {
       setIsUploadingReceipt(false);
@@ -734,6 +739,12 @@ export function AddExpenseModal({ isOpen, onClose, defaultGroupId, expenseToEdit
                   <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 truncate">
                     <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                     <span>Receipt Attached</span>
+                    {isUploadingReceipt && (
+                      <span className="text-[10px] text-muted-foreground font-normal flex items-center gap-1 ml-1">
+                        <Loader2 className="w-3 h-3 animate-spin text-emerald-600" />
+                        Syncing...
+                      </span>
+                    )}
                   </div>
                   <button
                     type="button"
