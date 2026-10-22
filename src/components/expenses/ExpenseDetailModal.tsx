@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -8,6 +8,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { useAppStore } from '@/lib/store';
 import { Expense } from '@/types/database';
 import { formatINR } from '@/lib/currency';
+import { uploadReceiptFile } from '@/lib/receipt-upload';
 import { format } from 'date-fns';
 import {
   Calendar,
@@ -18,6 +19,11 @@ import {
   Tag,
   ExternalLink,
   Pencil,
+  Upload,
+  Loader2,
+  Eye,
+  Download,
+  X,
 } from 'lucide-react';
 
 interface ExpenseDetailModalProps {
@@ -28,10 +34,41 @@ interface ExpenseDetailModalProps {
 }
 
 export function ExpenseDetailModal({ expense, isOpen, onClose, onEdit }: ExpenseDetailModalProps) {
-  const { currentUser, deleteExpense, addComment, users } = useAppStore();
+  const { currentUser, deleteExpense, updateExpense, addComment, users } = useAppStore();
   const [newComment, setNewComment] = useState('');
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!expense) return null;
+
+  const handleAttachReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadError(null);
+    setIsUploading(true);
+
+    try {
+      const result = await uploadReceiptFile(file);
+      updateExpense(expense.id, { receipt_url: result.url });
+    } catch (err: any) {
+      console.error('Error attaching receipt:', err);
+      setUploadError(err?.message || 'Failed to attach receipt');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveReceipt = () => {
+    if (confirm('Are you sure you want to remove the receipt attachment?')) {
+      updateExpense(expense.id, { receipt_url: '' });
+    }
+  };
 
   const handleAddComment = (e: React.FormEvent) => {
     e.preventDefault();
@@ -141,29 +178,105 @@ export function ExpenseDetailModal({ expense, isOpen, onClose, onEdit }: Expense
           </div>
         </div>
 
-        {/* Receipt Attachment Preview if present */}
-        {expense.receipt_url && (
-          <div className="p-3 rounded-xl border border-border bg-muted/20 space-y-2">
+        {/* Receipt Attachment Section */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          accept="image/*"
+          onChange={handleAttachReceipt}
+          className="hidden"
+        />
+
+        {expense.receipt_url ? (
+          <div className="p-3.5 rounded-xl border border-border bg-muted/20 space-y-2.5">
             <div className="text-xs font-semibold text-foreground flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
-                <Receipt className="w-4 h-4 text-emerald-600" />
-                Receipt Attached
+              <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                <Receipt className="w-4 h-4" />
+                <span>Receipt Attached</span>
               </span>
-              <a
-                href={expense.receipt_url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-emerald-600 hover:underline flex items-center gap-1"
-              >
-                View Full <ExternalLink className="w-3 h-3" />
-              </a>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsLightboxOpen(true)}
+                  className="text-xs text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 font-medium"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Expand</span>
+                </button>
+                <a
+                  href={expense.receipt_url}
+                  download={`receipt-${expense.description.replace(/\s+/g, '-').toLowerCase()}.jpg`}
+                  className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 font-medium"
+                  title="Download receipt image"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={handleRemoveReceipt}
+                  className="text-xs text-rose-500 hover:underline flex items-center gap-1 font-medium ml-1"
+                  title="Remove receipt attachment"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Remove</span>
+                </button>
+              </div>
             </div>
-            <img
-              src={expense.receipt_url}
-              alt="Receipt"
-              className="w-full max-h-48 object-cover rounded-lg border border-border"
-            />
+
+            <div
+              className="relative group cursor-pointer overflow-hidden rounded-lg border border-border bg-black/5 dark:bg-black/20"
+              onClick={() => setIsLightboxOpen(true)}
+              title="Click to view full screen"
+            >
+              <img
+                src={expense.receipt_url}
+                alt={`Receipt for ${expense.description}`}
+                className="w-full max-h-52 object-contain rounded-lg group-hover:scale-[1.01] transition-transform"
+              />
+              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                <span className="bg-black/75 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 font-medium shadow-md">
+                  <Eye className="w-3.5 h-3.5" /> Click to Zoom
+                </span>
+              </div>
+            </div>
           </div>
+        ) : (
+          <div className="p-3.5 rounded-xl border border-dashed border-border bg-card/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
+              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                <Receipt className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <div>
+                <span className="font-semibold text-foreground block">No Receipt Attached</span>
+                <span className="text-[11px]">Add a photo of the bill or invoice for your records.</span>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              className="text-xs h-8.5 gap-1.5 shrink-0 border-emerald-500/30 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+            >
+              {isUploading ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                  <span>Compressing...</span>
+                </>
+              ) : (
+                <>
+                  <Upload className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Attach Receipt</span>
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+
+        {uploadError && (
+          <p className="text-xs text-rose-500 font-medium">{uploadError}</p>
         )}
 
         {/* Comments Section */}
@@ -226,6 +339,59 @@ export function ExpenseDetailModal({ expense, isOpen, onClose, onEdit }: Expense
           </Button>
         </div>
       </div>
+
+      {/* Lightbox Modal for Full View */}
+      {isLightboxOpen && expense.receipt_url && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
+          <div className="relative max-w-3xl w-full bg-card rounded-2xl p-4 border border-border shadow-2xl flex flex-col items-center">
+            <div className="w-full flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-emerald-600" />
+                <h3 className="font-bold text-sm text-foreground truncate max-w-sm">
+                  {expense.description} - Receipt
+                </h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={expense.receipt_url}
+                  download={`receipt-${expense.description.replace(/\s+/g, '-').toLowerCase()}.jpg`}
+                  className="px-2.5 py-1 text-xs border border-border rounded-lg hover:bg-muted text-foreground flex items-center gap-1 font-medium transition-colors"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setIsLightboxOpen(false)}
+                  className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="py-4 w-full flex items-center justify-center max-h-[72vh] overflow-auto">
+              <img
+                src={expense.receipt_url}
+                alt={`Full Receipt for ${expense.description}`}
+                className="max-h-[68vh] w-auto max-w-full object-contain rounded-lg shadow-lg"
+              />
+            </div>
+
+            <div className="w-full flex items-center justify-between pt-3 border-t border-border text-xs text-muted-foreground">
+              <span>Amount: <strong className="text-foreground">{formatINR(expense.amount)}</strong></span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsLightboxOpen(false)}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }
